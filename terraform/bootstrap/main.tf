@@ -260,3 +260,72 @@ resource "aws_lambda_function" "incident_orchestrator" {
     }
   }
 }
+# 1. IAM Role for the Incident Orchestrator Lambda
+resource "aws_iam_role" "lambda" {
+  name = "${var.environment}-incident-orchestrator-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+# Attach basic execution role (CloudWatch logging permissions)
+resource "aws_iam_role_policy_attachment" "lambda_basic" {
+  role       = aws_iam_role.lambda.name
+  policy_arn = "arn:aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+
+# 2. AgentCore Assume Role Policy Document
+data "aws_iam_policy_document" "agentcore_assume_role" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["bedrock-agentcore.amazonaws.com"]
+    }
+  }
+}
+
+# 3. IAM Role for AgentCore Runtime
+resource "aws_iam_role" "agentcore_runtime" {
+  name               = "${var.environment}-agentcore-runtime-role"
+  assume_role_policy = data.aws_iam_policy_document.agentcore_assume_role.json
+}
+
+# AgentCore Permissions Policy
+resource "aws_iam_role_policy" "agentcore_runtime" {
+  name = "${var.environment}-agentcore-runtime-policy"
+  role = aws_iam_role.agentcore_runtime.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "bedrock:InvokeModel",
+          "bedrock:Retrieve",
+          "bedrock:RetrieveAndGenerate",
+          "ec2:DescribeInstances",
+          "ec2:DescribeInstanceStatus",
+          "ssm:SendCommand",
+          "ssm:GetCommandInvocation"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = [var.servicenow_secret_arn]
+      }
+    ]
+  })
+}
