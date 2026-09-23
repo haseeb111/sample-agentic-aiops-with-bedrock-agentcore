@@ -47,9 +47,3 @@ resource "aws_iam_role_policy_attachment" "github_admin" {
   role       = aws_iam_role.github_deploy.name
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
 }
-
-module "monitoring" {
-  source                = "./platform/monitoring_and_logging.tf"
-  environment           = var.environment
-  servicenow_secret_arn = var.servicenow_secret_arn
-}
