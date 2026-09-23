@@ -1,19 +1,3 @@
-locals {
-  agents = toset(["analyze-agent", "validation-agent", "sop-agent", "sop-execution-agent"])
-}
-
-resource "aws_ecr_repository" "agents" {
-  for_each             = local.agents
-  name                 = "agentic-aiops/${each.key}"
-  image_tag_mutability = "IMMUTABLE"
-  image_scanning_configuration { scan_on_push = true }
-}
-
-# Fetch the existing GitHub OIDC provider instead of creating a duplicate
-data "aws_iam_openid_connect_provider" "github" {
-  url = "https://token.actions.githubusercontent.com"
-}
-
 data "aws_iam_policy_document" "github_assume_role" {
   statement {
     actions = ["sts:AssumeRoleWithWebIdentity"]
