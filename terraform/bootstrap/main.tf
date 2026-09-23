@@ -22,12 +22,4 @@ data "aws_iam_policy_document" "github_assume_role" {
   }
 }
 
-resource "aws_iam_role" "github_deploy" {
-  name               = "agentic-aiops-github-deploy"
-  assume_role_policy = data.aws_iam_policy_document.github_assume_role.json
-}
 
-resource "aws_iam_role_policy_attachment" "github_admin" {
-  role       = aws_iam_role.github_deploy.name
-  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
-}
