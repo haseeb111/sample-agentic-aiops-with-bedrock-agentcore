@@ -260,7 +260,6 @@ resource "aws_lambda_function" "incident_orchestrator" {
     }
   }
 }
-# 1. IAM Role for the Incident Orchestrator Lambda
 resource "aws_iam_role" "lambda" {
   name = "${var.environment}-incident-orchestrator-role"
 
@@ -272,6 +271,11 @@ resource "aws_iam_role" "lambda" {
       Action    = "sts:AssumeRole"
     }]
   })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_basic" {
+  role       = aws_iam_role.lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
 # Attach basic execution role (CloudWatch logging permissions)
