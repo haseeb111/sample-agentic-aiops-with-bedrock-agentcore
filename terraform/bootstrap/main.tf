@@ -1,7 +1,8 @@
-
 # ==========================================================
 # 1. CENTRAL S3 BUCKET FOR LOG AGGREGATION
 # ==========================================================
+
+data "aws_caller_identity" "current" {}
 
 resource "aws_s3_bucket" "central_logs" {
   bucket        = "central-logging-${var.environment}-${data.aws_caller_identity.current.account_id}"
@@ -17,8 +18,6 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "central_logs_cryp
     }
   }
 }
-
-data "aws_caller_identity" "current" {}
 
 # ==========================================================
 # 2. FIREHOSE ROLE & STREAM (CLOUDWATCH -> S3)
@@ -216,6 +215,10 @@ resource "aws_cloudwatch_log_metric_filter" "error_counter" {
   }
 }
 
+resource "aws_sns_topic" "incident_topic" {
+  name = "${var.environment}-incident-notification"
+}
+
 resource "aws_cloudwatch_metric_alarm" "error_alarm" {
   alarm_name          = "${var.environment}-ec2-critical-error-alarm"
   comparison_operator = "GreaterThanOrEqualToThreshold"
@@ -226,10 +229,6 @@ resource "aws_cloudwatch_metric_alarm" "error_alarm" {
   statistic           = "Sum"
   threshold           = 1
   alarm_actions       = [aws_sns_topic.incident_topic.arn]
-}
-
-resource "aws_sns_topic" "incident_topic" {
-  name = "${var.environment}-incident-notification"
 }
 
 resource "aws_sns_topic_subscription" "lambda_trigger" {
@@ -260,6 +259,11 @@ resource "aws_lambda_function" "incident_orchestrator" {
     }
   }
 }
+
+# ==========================================================
+# 6. IAM ROLES & POLICIES FOR LAMBDA AND AGENTCORE
+# ==========================================================
+
 resource "aws_iam_role" "lambda" {
   name = "${var.environment}-incident-orchestrator-role"
 
@@ -278,14 +282,6 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Attach basic execution role (CloudWatch logging permissions)
-resource "aws_iam_role_policy_attachment" "lambda_basic" {
-  role       = aws_iam_role.lambda.name
-  policy_arn = "arn:aws:policy/service-role/AWSLambdaBasicExecutionRole"
-}
-
-
-# 2. AgentCore Assume Role Policy Document
 data "aws_iam_policy_document" "agentcore_assume_role" {
   statement {
     effect  = "Allow"
@@ -298,13 +294,11 @@ data "aws_iam_policy_document" "agentcore_assume_role" {
   }
 }
 
-# 3. IAM Role for AgentCore Runtime
 resource "aws_iam_role" "agentcore_runtime" {
   name               = "${var.environment}-agentcore-runtime-role"
   assume_role_policy = data.aws_iam_policy_document.agentcore_assume_role.json
 }
 
-# AgentCore Permissions Policy
 resource "aws_iam_role_policy" "agentcore_runtime" {
   name = "${var.environment}-agentcore-runtime-policy"
   role = aws_iam_role.agentcore_runtime.id
