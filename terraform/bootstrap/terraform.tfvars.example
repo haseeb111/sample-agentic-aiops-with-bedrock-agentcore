@@ -1,0 +1,4 @@
+aws_region = "us-east-1"
+github_org = "haseeb111"
+github_repo = "sample-agentic-aiops-with-bedrock-agentcore"
+github_branch = "main"
