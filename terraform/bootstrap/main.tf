@@ -47,61 +47,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "central_logs_cryp
 }
 
 # ==========================================================
-# 2. FIREHOSE ROLE & STREAM (CLOUDWATCH -> S3)
-# ==========================================================
-
-resource "aws_iam_role" "firehose_delivery" {
-  name = "${var.environment}-firehose-s3-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Service = "firehose.amazonaws.com" }
-      Action    = "sts:AssumeRole"
-    }]
-  })
-}
-
-resource "aws_iam_role_policy" "firehose_s3_permissions" {
-  name = "${var.environment}-firehose-s3-policy"
-  role = aws_iam_role.firehose_delivery.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:AbortMultipartUpload",
-          "s3:GetBucketLocation",
-          "s3:GetObject",
-          "s3:ListBucket",
-          "s3:ListBucketMultipartUploads",
-          "s3:PutObject"
-        ]
-        Resource = [
-          aws_s3_bucket.central_logs.arn,
-          "${aws_s3_bucket.central_logs.arn}/*"
-        ]
-      }
-    ]
-  })
-}
-
-resource "aws_kinesis_firehose_delivery_stream" "log_stream" {
-  name        = "${var.environment}-central-log-stream"
-  destination = "extended_s3"
-
-  extended_s3_configuration {
-    role_arn   = aws_iam_role.firehose_delivery.arn
-    bucket_arn = aws_s3_bucket.central_logs.arn
-    prefix     = "ec2-logs/year=!{timestamp:yyyy}/month=!{timestamp:MM}/day=!{timestamp:dd}/"
-  }
-}
-
-# ==========================================================
-# 3. CLOUDWATCH SUBSCRIPTION FILTER
+# 2. CLOUDWATCH LOG GROUP
 # ==========================================================
 
 resource "aws_cloudwatch_log_group" "ec2_app_logs" {
@@ -109,43 +55,8 @@ resource "aws_cloudwatch_log_group" "ec2_app_logs" {
   retention_in_days = 30
 }
 
-resource "aws_iam_role" "cw_to_firehose" {
-  name = "${var.environment}-cw-to-firehose-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Service = "logs.amazonaws.com" }
-      Action    = "sts:AssumeRole"
-    }]
-  })
-}
-
-resource "aws_iam_role_policy" "cw_to_firehose" {
-  name = "${var.environment}-cw-to-firehose-policy"
-  role = aws_iam_role.cw_to_firehose.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["firehose:PutRecord", "firehose:PutRecordBatch"]
-      Resource = [aws_kinesis_firehose_delivery_stream.log_stream.arn]
-    }]
-  })
-}
-
-resource "aws_cloudwatch_log_subscription_filter" "firehose_sync" {
-  name            = "central-s3-export"
-  log_group_name  = aws_cloudwatch_log_group.ec2_app_logs.name
-  filter_pattern  = "" # Capture all incoming logs
-  destination_arn = aws_kinesis_firehose_delivery_stream.log_stream.arn
-  role_arn        = aws_iam_role.cw_to_firehose.arn
-}
-
 # ==========================================================
-# 4. MONITORING TEST EC2 INSTANCE (WITH CW AGENT)
+# 3. MONITORING TEST EC2 INSTANCE (WITH CW AGENT)
 # ==========================================================
 
 data "aws_ami" "amazon_linux_2023" {
@@ -189,6 +100,7 @@ resource "aws_iam_instance_profile" "ec2_monitoring" {
 resource "aws_instance" "monitoring_test_vm" {
   ami                  = data.aws_ami.amazon_linux_2023.id
   instance_type        = "t3.micro"
+  subnet_id            = "subnet-0f87c73ac77418d93"
   iam_instance_profile = aws_iam_instance_profile.ec2_monitoring.name
 
   user_data = <<-EOF
@@ -225,7 +137,7 @@ resource "aws_instance" "monitoring_test_vm" {
 }
 
 # ==========================================================
-# 5. ALARM, SERVICENOW TICKET GENERATION & AUTOMATED REMEDIATION
+# 4. ALARM, SERVICENOW TICKET GENERATION & AUTOMATED REMEDIATION
 # ==========================================================
 
 resource "aws_cloudwatch_log_metric_filter" "error_counter" {
@@ -271,11 +183,12 @@ resource "aws_lambda_permission" "sns_lambda" {
 }
 
 resource "aws_lambda_function" "incident_orchestrator" {
-  filename      = "lambda_orchestrator.zip"
-  function_name = "${var.environment}-incident-orchestrator"
-  role          = aws_iam_role.lambda.arn
-  handler       = "index.handler"
-  runtime       = "python3.11"
+  filename         = "${path.module}/../lambda/lambda_deployment.zip"
+  source_code_hash = filebase64sha256("${path.module}/../lambda/lambda_deployment.zip")
+  function_name    = "${var.environment}-incident-orchestrator"
+  role             = aws_iam_role.lambda.arn
+  handler          = "index.handler"
+  runtime          = "python3.11"
 
   environment {
     variables = {
@@ -286,7 +199,7 @@ resource "aws_lambda_function" "incident_orchestrator" {
 }
 
 # ==========================================================
-# 6. IAM ROLES & POLICIES FOR LAMBDA AND AGENTCORE
+# 5. IAM ROLES & POLICIES FOR LAMBDA AND AGENTCORE
 # ==========================================================
 
 resource "aws_iam_role" "lambda" {
