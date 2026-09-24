@@ -25,6 +25,7 @@ variable "servicenow_password" {
   type        = string
   description = "ServiceNow user password"
   sensitive   = true
+  default     = ""
 }
 
 variable "servicenow_secret_arn" {
