@@ -182,6 +182,12 @@ resource "aws_lambda_permission" "sns_lambda" {
   source_arn    = aws_sns_topic.incident_topic.arn
 }
 
+data "archive_file" "lambda_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/../../lambda" # Adjusts dynamically to target the lambda source directory
+  output_path = "${path.module}/lambda_deployment.zip"
+}
+
 resource "aws_lambda_function" "incident_orchestrator" {
   filename         = "${path.module}/../lambda/lambda_deployment.zip"
   source_code_hash = filebase64sha256("${path.module}/../lambda/lambda_deployment.zip")
