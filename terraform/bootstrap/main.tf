@@ -1,4 +1,31 @@
 # ==========================================================
+# 0. LOCAL HELPER & SECRETS MANAGER PROVISIONING
+# ==========================================================
+
+# Create Secrets Manager container if pre-existing ARN is not provided
+resource "aws_secretsmanager_secret" "servicenow" {
+  count       = var.servicenow_secret_arn == "" ? 1 : 0
+  name        = "${var.environment}/servicenow/credentials"
+  description = "ServiceNow API credentials for AIOps"
+}
+
+# Store the JSON payload inside Secrets Manager
+resource "aws_secretsmanager_secret_version" "servicenow_val" {
+  count     = var.servicenow_secret_arn == "" ? 1 : 0
+  secret_id = aws_secretsmanager_secret.servicenow[0].id
+  secret_string = jsonencode({
+    url      = var.servicenow_url
+    username = var.servicenow_username
+    password = var.servicenow_password
+  })
+}
+
+# Local variable to dynamically select the active secret ARN
+locals {
+  active_servicenow_secret_arn = var.servicenow_secret_arn != "" ? var.servicenow_secret_arn : aws_secretsmanager_secret.servicenow[0].arn
+}
+
+# ==========================================================
 # 1. CENTRAL S3 BUCKET FOR LOG AGGREGATION
 # ==========================================================
 
@@ -144,7 +171,6 @@ resource "aws_iam_role" "ec2_monitoring" {
   })
 }
 
-# Attach SSM and CloudWatch policies to the VM
 resource "aws_iam_role_policy_attachment" "ec2_cw" {
   role       = aws_iam_role.ec2_monitoring.name
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
@@ -170,7 +196,6 @@ resource "aws_instance" "monitoring_test_vm" {
               dnf install -y amazon-cloudwatch-agent ssm-agent
               systemctl enable --now amazon-ssm-agent
               
-              # Config file for CloudWatch Agent to ship logs to central group
               cat << 'CWCFG' > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
               {
                 "logs": {
@@ -294,6 +319,11 @@ data "aws_iam_policy_document" "agentcore_assume_role" {
   }
 }
 
+resource "aws_iam_role" "agentcore_runtime" {
+  name               = "${var.environment}-agentcore-runtime-role"
+  assume_role_policy = data.aws_iam_policy_document.agentcore_assume_role.json
+}
+
 resource "aws_iam_role_policy" "agentcore_runtime" {
   name = "${var.environment}-agentcore-runtime-policy"
   role = aws_iam_role.agentcore_runtime.id
@@ -321,27 +351,4 @@ resource "aws_iam_role_policy" "agentcore_runtime" {
       }
     ]
   })
-}
-
-# 1. Create Secrets Manager container
-resource "aws_secretsmanager_secret" "servicenow" {
-  count       = var.servicenow_secret_arn == "" ? 1 : 0
-  name        = "${var.environment}/servicenow/credentials"
-  description = "ServiceNow API credentials for AIOps"
-}
-
-# 2. Store the JSON payload inside Secrets Manager
-resource "aws_secretsmanager_secret_version" "servicenow_val" {
-  count     = var.servicenow_secret_arn == "" ? 1 : 0
-  secret_id = aws_secretsmanager_secret.servicenow[0].id
-  secret_string = jsonencode({
-    url      = var.servicenow_url
-    username = var.servicenow_username
-    password = var.servicenow_password
-  })
-}
-
-# Local helper variable to select the active ARN
-locals {
-  active_servicenow_secret_arn = var.servicenow_secret_arn != "" ? var.servicenow_secret_arn : aws_secretsmanager_secret.servicenow[0].arn
 }
