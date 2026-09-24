@@ -189,8 +189,8 @@ data "archive_file" "lambda_zip" {
 }
 
 resource "aws_lambda_function" "incident_orchestrator" {
-  filename         = "${path.module}/../lambda/lambda_deployment.zip"
-  source_code_hash = filebase64sha256("${path.module}/../lambda/lambda_deployment.zip")
+  filename         = data.archive_file.lambda_zip.output_path
+  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
   function_name    = "${var.environment}-incident-orchestrator"
   role             = aws_iam_role.lambda.arn
   handler          = "index.handler"
