@@ -254,7 +254,7 @@ resource "aws_lambda_function" "incident_orchestrator" {
 
   environment {
     variables = {
-      SERVICENOW_SECRET_ARN = var.servicenow_secret_arn
+      SERVICENOW_SECRET_ARN = local.active_servicenow_secret_arn
       AGENTCORE_ROLE_ARN    = aws_iam_role.agentcore_runtime.arn
     }
   }
@@ -294,11 +294,6 @@ data "aws_iam_policy_document" "agentcore_assume_role" {
   }
 }
 
-resource "aws_iam_role" "agentcore_runtime" {
-  name               = "${var.environment}-agentcore-runtime-role"
-  assume_role_policy = data.aws_iam_policy_document.agentcore_assume_role.json
-}
-
 resource "aws_iam_role_policy" "agentcore_runtime" {
   name = "${var.environment}-agentcore-runtime-policy"
   role = aws_iam_role.agentcore_runtime.id
@@ -322,8 +317,31 @@ resource "aws_iam_role_policy" "agentcore_runtime" {
       {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
-        Resource = [var.servicenow_secret_arn]
+        Resource = [local.active_servicenow_secret_arn]
       }
     ]
   })
+}
+
+# 1. Create Secrets Manager container
+resource "aws_secretsmanager_secret" "servicenow" {
+  count       = var.servicenow_secret_arn == "" ? 1 : 0
+  name        = "${var.environment}/servicenow/credentials"
+  description = "ServiceNow API credentials for AIOps"
+}
+
+# 2. Store the JSON payload inside Secrets Manager
+resource "aws_secretsmanager_secret_version" "servicenow_val" {
+  count     = var.servicenow_secret_arn == "" ? 1 : 0
+  secret_id = aws_secretsmanager_secret.servicenow[0].id
+  secret_string = jsonencode({
+    url      = var.servicenow_url
+    username = var.servicenow_username
+    password = var.servicenow_password
+  })
+}
+
+# Local helper variable to select the active ARN
+locals {
+  active_servicenow_secret_arn = var.servicenow_secret_arn != "" ? var.servicenow_secret_arn : aws_secretsmanager_secret.servicenow[0].arn
 }
