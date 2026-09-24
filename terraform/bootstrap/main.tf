@@ -2,6 +2,16 @@
 # 0. LOCAL HELPER & SECRETS MANAGER PROVISIONING
 # ==========================================================
 
+terraform {
+  backend "s3" {
+    bucket         = "aiops-terraform-tfstate01"
+    key            = "dev-aiops.tfstate"
+    region         = "us-east-1"
+  }
+}
+
+
+
 # Create Secrets Manager container if pre-existing ARN is not provided
 resource "aws_secretsmanager_secret" "servicenow" {
   count       = var.servicenow_secret_arn == "" ? 1 : 0
