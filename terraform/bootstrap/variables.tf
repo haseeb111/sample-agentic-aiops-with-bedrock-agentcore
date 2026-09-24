@@ -9,9 +9,28 @@ variable "aws_region" {
   default = "us-east-1"
 }
 
+variable "servicenow_url" {
+  type        = string
+  description = "ServiceNow instance URL"
+  default     = "https://dev366467.service-now.com"
+}
+
+variable "servicenow_username" {
+  type        = string
+  description = "ServiceNow integration user"
+  default     = "agentcore_service"
+}
+
+variable "servicenow_password" {
+  type        = string
+  description = "ServiceNow user password"
+  sensitive   = true
+}
+
 variable "servicenow_secret_arn" {
   type        = string
-  description = "AWS Secrets Manager ARN storing ServiceNow credentials (URL, username, password)"
+  description = "Optional pre-existing Secrets Manager ARN"
+  default     = ""
 }
 
 variable "github_org" {
