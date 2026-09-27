@@ -329,18 +329,6 @@ resource "aws_vpc_security_group_ingress_rule" "aiops_ssh" {
 }
 
 
-resource "aws_instance" "aiops" {
-  ami                         = data.aws_ssm_parameter.ubuntu_ami.value
-  instance_type               = var.aiops_instance_type
-  subnet_id                   = aws_subnet.public.id
-  associate_public_ip_address = true # <-- Force public IP assignment
-  vpc_security_group_ids      = [aws_security_group.aiops.id]
-  iam_instance_profile        = aws_iam_instance_profile.ec2.name
-
-  tags = {
-    Name = "${local.name_prefix}-aiops"
-  }
-}
 
 
 resource "aws_route_table" "public" {
