@@ -64,7 +64,7 @@ variable "target_instance_type" {
 variable "aiops_instance_type" {
   description = "AIOps VM. 16 GiB RAM is recommended for a small local Ollama model."
   type        = string
-  default     = "t3.micro"
+  default     = "t3.xlarge"
 }
 
 variable "target_root_gb" {
@@ -166,7 +166,16 @@ resource "aws_internet_gateway" "this" {
   }
 }
 
+resource "aws_subnet" "public" {
+  vpc_id                  = aws_vpc.this.id
+  cidr_block              = var.public_subnet_cidr
+  availability_zone       = local.az
+  map_public_ip_on_launch = true
 
+  tags = {
+    Name = "${local.name_prefix}-public-snet"
+  }
+}
 
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.this.id
@@ -309,22 +318,6 @@ resource "aws_vpc_security_group_ingress_rule" "target_demo_app_from_aiops" {
   to_port                      = 8080
   ip_protocol                  = "tcp"
 }
-
-resource "aws_vpc_security_group_ingress_rule" "aiops_ssh" {
-  security_group_id = aws_security_group.aiops.id
-  description       = "SSH from admin CIDR"
-  cidr_ipv4         = var.admin_cidr
-  from_port         = 22
-  to_port           = 22
-  ip_protocol       = "tcp"
-}
-
-
-
-
-
-
-
 
 ################################################################################
 # SECURITY GROUP EGRESS RULES
