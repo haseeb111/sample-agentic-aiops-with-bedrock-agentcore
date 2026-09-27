@@ -9,29 +9,6 @@ terraform {
     region         = "us-east-1"
   }
 
-
-
-  required_version = ">= 1.7.0"
-
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 6.0"
-    }
-    tls = {
-      source  = "hashicorp/tls"
-      version = "~> 4.0"
-    }
-  }
-
-  default_tags {
-    tags = {
-      Project     = var.project_name
-      Environment = var.environment
-      ManagedBy   = "Terraform"
-      Solution    = "OpenSource-VM-AIOps"
-    }
-  }
 }
 
 ################################################################################
