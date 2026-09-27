@@ -64,7 +64,7 @@ variable "target_instance_type" {
 variable "aiops_instance_type" {
   description = "AIOps VM. 16 GiB RAM is recommended for a small local Ollama model."
   type        = string
-  default     = "t3.xlarge"
+  default     = "t3.micro"
 }
 
 variable "target_root_gb" {
