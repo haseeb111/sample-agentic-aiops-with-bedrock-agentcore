@@ -11,6 +11,19 @@ terraform {
 
 }
 
+# ==========================================================
+# 0. LOCAL HELPER & SECRETS MANAGER PROVISIONING
+# ==========================================================
+
+terraform {
+  backend "s3" {
+    bucket         = "aiops-terraform-tfstate01"
+    key            = "dev-aiops.tfstate"
+    region         = "us-east-1"
+  }
+
+}
+
 
 ################################################################################
 # VARIABLES
@@ -64,7 +77,7 @@ variable "target_instance_type" {
 variable "aiops_instance_type" {
   description = "AIOps VM. 16 GiB RAM is recommended for a small local Ollama model."
   type        = string
-  default     = "t3.xlarge"
+  default     = "t3.micro"
 }
 
 variable "target_root_gb" {
@@ -275,6 +288,17 @@ resource "aws_vpc_security_group_ingress_rule" "aiops_qdrant" {
   ip_protocol       = "tcp"
 }
 
+# Allow direct SSH to the AIOps VM from the administrator CIDR.
+# Keep admin_cidr restricted to YOUR.PUBLIC.IP/32 rather than 0.0.0.0/0.
+resource "aws_vpc_security_group_ingress_rule" "aiops_ssh_from_admin" {
+  security_group_id = aws_security_group.aiops.id
+  description       = "SSH to AIOps VM from admin CIDR"
+  cidr_ipv4         = var.admin_cidr
+  from_port         = 22
+  to_port           = 22
+  ip_protocol       = "tcp"
+}
+
 # Target VMs push logs to Loki running on the AIOps VM.
 resource "aws_vpc_security_group_ingress_rule" "aiops_loki_from_targets" {
   security_group_id            = aws_security_group.aiops.id
@@ -317,6 +341,17 @@ resource "aws_vpc_security_group_ingress_rule" "target_demo_app_from_aiops" {
   from_port                    = 8080
   to_port                      = 8080
   ip_protocol                  = "tcp"
+}
+
+# Optional direct SSH to target VMs from the administrator CIDR.
+# The target VMs already receive a public IPv4 address in this POC.
+resource "aws_vpc_security_group_ingress_rule" "target_ssh_from_admin" {
+  security_group_id = aws_security_group.target.id
+  description       = "SSH to monitored VMs from admin CIDR"
+  cidr_ipv4         = var.admin_cidr
+  from_port         = 22
+  to_port           = 22
+  ip_protocol       = "tcp"
 }
 
 ################################################################################
