@@ -2,6 +2,15 @@ name: Bootstrap AWS
 
 on:
   workflow_dispatch:
+    inputs:
+      destroy:
+        description: "Destroy infrastructure? Type yes to destroy"
+        required: true
+        default: "no"
+        type: choice
+        options:
+          - "no"
+          - "yes"
 
 permissions:
   id-token: write
@@ -40,10 +49,39 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
+      # ==========================================================
+      # APPLY
+      # Runs only when destroy = no
+      # ==========================================================
+
       - name: Terraform Plan
+        if: ${{ inputs.destroy != 'yes' }}
         run: |
-          terraform apply -var="admin_cidr=0.0.0.0/0" -auto-approve
+          terraform plan \
+            -var="admin_cidr=0.0.0.0/0" \
+            -out=tfplan
 
       - name: Terraform Apply
+        if: ${{ inputs.destroy != 'yes' }}
         run: |
-          terraform apply -auto-approve
+          terraform apply -auto-approve tfplan
+
+      # ==========================================================
+      # DESTROY
+      # Runs only when destroy = yes
+      # ==========================================================
+
+      - name: Terraform Destroy Plan
+        if: ${{ inputs.destroy == 'yes' }}
+        run: |
+          terraform plan \
+            -destroy \
+            -var="admin_cidr=0.0.0.0/0" \
+            -out=destroy.tfplan
+
+      - name: Terraform Destroy
+        if: ${{ inputs.destroy == 'yes' }}
+        run: |
+          terraform apply \
+            -auto-approve \
+            destroy.tfplan
