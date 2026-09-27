@@ -42,14 +42,8 @@ jobs:
 
       - name: Terraform Plan
         run: |
-          terraform plan \
-            -var="github_org=${{ github.repository_owner }}" \
-            -var="github_repo=${{ github.event.repository.name }}" \
-            -var="github_branch=main"
+          terraform plan
 
       - name: Terraform Apply
         run: |
-          terraform apply -auto-approve \
-            -var="github_org=${{ github.repository_owner }}" \
-            -var="github_repo=${{ github.event.repository.name }}" \
-            -var="github_branch=main"
+          terraform apply -auto-approve
