@@ -11,18 +11,6 @@ terraform {
 
 }
 
-# ==========================================================
-# 0. LOCAL HELPER & SECRETS MANAGER PROVISIONING
-# ==========================================================
-
-terraform {
-  backend "s3" {
-    bucket         = "aiops-terraform-tfstate01"
-    key            = "dev-aiops.tfstate"
-    region         = "us-east-1"
-  }
-
-}
 
 
 ################################################################################
