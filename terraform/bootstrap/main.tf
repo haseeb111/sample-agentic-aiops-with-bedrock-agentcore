@@ -166,16 +166,7 @@ resource "aws_internet_gateway" "this" {
   }
 }
 
-resource "aws_subnet" "public" {
-  vpc_id                  = aws_vpc.this.id
-  cidr_block              = var.public_subnet_cidr
-  availability_zone       = local.az
-  map_public_ip_on_launch = true
 
-  tags = {
-    Name = "${local.name_prefix}-public-snet"
-  }
-}
 
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.this.id
