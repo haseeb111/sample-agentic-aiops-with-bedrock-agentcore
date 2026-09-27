@@ -4,13 +4,11 @@
 
 terraform {
   backend "s3" {
-    bucket         = "aiops-terraform-tfstate01"
-    key            = "dev-aiops.tfstate"
-    region         = "us-east-1"
+    bucket = "aiops-terraform-tfstate01"
+    key    = "dev-aiops.tfstate"
+    region = "us-east-1"
   }
-
 }
-
 
 ################################################################################
 # VARIABLES
@@ -107,8 +105,6 @@ variable "servicenow_password" {
   sensitive   = true
 }
 
-# Existing S3 bucket used for Terraform state and AIOps bootstrap artifacts.
-# Terraform does NOT create this bucket.
 variable "bootstrap_bucket_name" {
   description = "Existing S3 bucket used to store the AIOps bootstrap script"
   type        = string
@@ -133,7 +129,6 @@ data "aws_ssm_parameter" "ubuntu_ami" {
   name = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
 }
 
-# Reuse the existing bucket. No aws_s3_bucket resource is created.
 data "aws_s3_bucket" "bootstrap" {
   bucket = var.bootstrap_bucket_name
 }
@@ -158,6 +153,17 @@ resource "aws_vpc" "this" {
   }
 }
 
+resource "aws_subnet" "public" {
+  vpc_id                  = aws_vpc.this.id
+  cidr_block              = var.public_subnet_cidr
+  availability_zone       = local.az
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name = "${local.name_prefix}-public-subnet"
+  }
+}
+
 resource "aws_internet_gateway" "this" {
   vpc_id = aws_vpc.this.id
 
@@ -165,8 +171,6 @@ resource "aws_internet_gateway" "this" {
     Name = "${local.name_prefix}-igw"
   }
 }
-
-
 
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.this.id
@@ -188,13 +192,6 @@ resource "aws_route_table_association" "public" {
 
 ################################################################################
 # SECURITY GROUPS
-#
-# IMPORTANT:
-# The security groups are created first WITHOUT cross-referencing ingress rules.
-# Cross-security-group rules are created separately below with
-# aws_vpc_security_group_ingress_rule resources. This prevents the Terraform
-# dependency cycle:
-#   aws_security_group.aiops <-> aws_security_group.target
 ################################################################################
 
 resource "aws_security_group" "aiops" {
@@ -220,6 +217,15 @@ resource "aws_security_group" "target" {
 ################################################################################
 # AIOPS SECURITY GROUP INGRESS RULES
 ################################################################################
+
+resource "aws_vpc_security_group_ingress_rule" "aiops_ssh" {
+  security_group_id = aws_security_group.aiops.id
+  description       = "SSH from admin CIDR"
+  cidr_ipv4         = var.admin_cidr
+  from_port         = 22
+  to_port           = 22
+  ip_protocol       = "tcp"
+}
 
 resource "aws_vpc_security_group_ingress_rule" "aiops_grafana" {
   security_group_id = aws_security_group.aiops.id
@@ -310,36 +316,6 @@ resource "aws_vpc_security_group_ingress_rule" "target_demo_app_from_aiops" {
   ip_protocol                  = "tcp"
 }
 
-resource "aws_vpc_security_group_ingress_rule" "aiops_ssh" {
-  security_group_id = aws_security_group.aiops.id
-  description       = "SSH from admin CIDR"
-  cidr_ipv4         = var.admin_cidr
-  from_port         = 22
-  to_port           = 22
-  ip_protocol       = "tcp"
-}
-
-
-
-
-resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.this.id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.this.id
-  }
-
-  tags = {
-    Name = "${local.name_prefix}-public-rt"
-  }
-}
-
-resource "aws_route_table_association" "public" {
-  subnet_id      = aws_subnet.public.id
-  route_table_id = aws_route_table.public.id
-}
-
 ################################################################################
 # SECURITY GROUP EGRESS RULES
 ################################################################################
@@ -420,7 +396,6 @@ resource "aws_iam_role_policy" "prometheus_ec2_discovery" {
   })
 }
 
-# Allow EC2 to download only the bootstrap prefix from the existing S3 bucket.
 resource "aws_iam_role_policy" "bootstrap_s3_read" {
   name = "${local.name_prefix}-bootstrap-s3-read"
   role = aws_iam_role.ec2.id
@@ -458,8 +433,6 @@ resource "aws_iam_instance_profile" "ec2" {
 
 ################################################################################
 # ANSIBLE SSH KEYPAIR
-# POC NOTE: the private key is stored in Terraform state. Replace this design
-# with a managed key / OpenBao workflow before production use.
 ################################################################################
 
 resource "tls_private_key" "ansible" {
@@ -467,26 +440,7 @@ resource "tls_private_key" "ansible" {
 }
 
 ################################################################################
-# AIOPS EC2 VM
-# Installs:
-# - Docker / Compose
-# - Prometheus
-# - Alertmanager
-# - Blackbox Exporter
-# - Loki
-# - Grafana
-# - Ollama
-# - Qdrant
-# - FastAPI AIOps service
-# - Ansible
-################################################################################
-
-################################################################################
 # AIOPS BOOTSTRAP ARTIFACT IN EXISTING S3 BUCKET
-#
-# This solves the EC2 16 KiB user_data limit. The full installer is uploaded to
-# the existing bucket and EC2 user_data only downloads and executes it.
-# No S3 bucket is created by this Terraform.
 ################################################################################
 
 resource "aws_s3_object" "aiops_bootstrap" {
@@ -1036,377 +990,5 @@ resource "aws_s3_object" "aiops_bootstrap" {
         image: prom/prometheus:latest
         container_name: prometheus
         restart: unless-stopped
-        command:
-          - --config.file=/etc/prometheus/prometheus.yml
-        volumes:
-          - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-          - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
-          - prometheus-data:/prometheus
-        ports:
-          - "9090:9090"
-
-      alertmanager:
-        image: prom/alertmanager:latest
-        container_name: alertmanager
-        restart: unless-stopped
-        volumes:
-          - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-        ports:
-          - "9093:9093"
-
-      blackbox:
-        image: prom/blackbox-exporter:latest
-        container_name: blackbox
-        restart: unless-stopped
-        command:
-          - --config.file=/config/blackbox.yml
-        volumes:
-          - ./blackbox/blackbox.yml:/config/blackbox.yml:ro
-
-      loki:
-        image: grafana/loki:latest
-        container_name: loki
-        restart: unless-stopped
-        command: -config.file=/etc/loki/loki.yml
-        volumes:
-          - ./loki/loki.yml:/etc/loki/loki.yml:ro
-          - loki-data:/loki
-        ports:
-          - "3100:3100"
-
-      grafana:
-        image: grafana/grafana:latest
-        container_name: grafana
-        restart: unless-stopped
-        volumes:
-          - grafana-data:/var/lib/grafana
-          - ./grafana/provisioning:/etc/grafana/provisioning:ro
-        ports:
-          - "3000:3000"
-        depends_on:
-          - prometheus
-          - loki
-
-      qdrant:
-        image: qdrant/qdrant:latest
-        container_name: qdrant
-        restart: unless-stopped
-        volumes:
-          - qdrant-data:/qdrant/storage
-        ports:
-          - "6333:6333"
-          - "6334:6334"
-
-      ollama:
-        image: ollama/ollama:latest
-        container_name: ollama
-        restart: unless-stopped
-        volumes:
-          - ollama-data:/root/.ollama
-        ports:
-          - "11434:11434"
-
-      fastapi:
-        build: ./fastapi
-        container_name: fastapi
-        restart: unless-stopped
-        environment:
-          LOKI_URL: http://loki:3100
-          OLLAMA_URL: http://ollama:11434
-          QDRANT_HOST: qdrant
-          QDRANT_PORT: "6333"
-          OLLAMA_MODEL: ${var.ollama_model}
-          EMBED_MODEL: ${var.ollama_embedding_model}
-          SERVICENOW_URL: ${jsonencode(var.servicenow_url)}
-          SERVICENOW_USERNAME: ${jsonencode(var.servicenow_username)}
-          SERVICENOW_PASSWORD: ${jsonencode(var.servicenow_password)}
-        volumes:
-          - ./ansible:/ansible:ro
-          - ./keys:/keys:ro
-        ports:
-          - "8000:8000"
-        depends_on:
-          - loki
-          - qdrant
-          - ollama
-
-    volumes:
-      prometheus-data:
-      loki-data:
-      grafana-data:
-      qdrant-data:
-      ollama-data:
-    COMPOSEEOF
-
-    cd /opt/aiops
-    docker compose up -d --build
-
-    # Wait for Ollama, then pull local LLM + embedding models.
-    for i in $(seq 1 90); do
-      if curl -sf http://127.0.0.1:11434/api/tags >/dev/null; then
-        break
-      fi
-      sleep 5
-    done
-
-    docker exec ollama ollama pull ${var.ollama_model} || true
-    docker exec ollama ollama pull ${var.ollama_embedding_model} || true
-
-    cat > /usr/local/bin/aiops-status <<'STATUSEOF'
-    #!/usr/bin/env bash
-    set -e
-    cd /opt/aiops
-    docker compose ps
-    echo
-    echo "FastAPI health:"
-    curl -sf http://localhost:8000/health || true
-    echo
-    echo "Prometheus health:"
-    curl -sf http://localhost:9090/-/healthy || true
-    echo
-    echo "Loki health:"
-    curl -sf http://localhost:3100/ready || true
-    echo
-    STATUSEOF
-    chmod +x /usr/local/bin/aiops-status
-  BOOTSTRAP
-
-  content_type           = "text/x-shellscript"
-  server_side_encryption = "AES256"
-
-  tags = {
-    Name = "${local.name_prefix}-install-aiops"
-  }
-}
-
-resource "aws_instance" "aiops" {
-  ami                    = data.aws_ssm_parameter.ubuntu_ami.value
-  instance_type          = var.aiops_instance_type
-  subnet_id              = aws_subnet.public.id
-  vpc_security_group_ids = [aws_security_group.aiops.id]
-  iam_instance_profile   = aws_iam_instance_profile.ec2.name
-
-  associate_public_ip_address = true
-
-  metadata_options {
-    http_endpoint               = "enabled"
-    http_tokens                 = "required"
-    http_put_response_hop_limit = 2
-  }
-
-  root_block_device {
-    volume_type           = "gp3"
-    volume_size           = var.aiops_root_gb
-    encrypted             = true
-    delete_on_termination = true
-  }
-
-  user_data = <<-USERDATA
-    #!/usr/bin/env bash
-    set -euxo pipefail
-
-    export DEBIAN_FRONTEND=noninteractive
-
-    # Install only the small set of tools required to download the real bootstrap.
-    apt-get update
-    apt-get install -y curl unzip ca-certificates
-
-    # Install AWS CLI v2. The EC2 instance role supplies credentials automatically.
-    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
-    rm -rf /tmp/aws /tmp/awscliv2
-    unzip -q /tmp/awscliv2.zip -d /tmp/awscliv2
-    /tmp/awscliv2/aws/install --update
-
-    # Download the full AIOps installer from the EXISTING S3 bucket.
-    aws s3 cp \
-      "s3://${var.bootstrap_bucket_name}/${aws_s3_object.aiops_bootstrap.key}" \
-      /tmp/install-aiops.sh \
-      --region "${var.aws_region}"
-
-    chmod 700 /tmp/install-aiops.sh
-    /tmp/install-aiops.sh
-  USERDATA
-
-  tags = {
-    Name = "${local.name_prefix}-aiops"
-    Role = "AIOpsPlatform"
-  }
-
-  depends_on = [
-    aws_route_table_association.public,
-    aws_iam_role_policy.prometheus_ec2_discovery,
-    aws_iam_role_policy.bootstrap_s3_read,
-    aws_s3_object.aiops_bootstrap
-  ]
-}
-
-resource "aws_route53_record" "aiops" {
-  zone_id = aws_route53_zone.private.zone_id
-  name    = local.aiops_dns
-  type    = "A"
-  ttl     = 30
-  records = [aws_instance.aiops.private_ip]
-}
-
-################################################################################
-# MONITORED APPLICATION VMs
-# Each VM installs:
-# - Demo Python application
-# - node_exporter
-# - Grafana Alloy log shipper -> Loki
-# - SSM access
-################################################################################
-
-resource "aws_instance" "target" {
-  count = var.target_vm_count
-
-  ami                    = data.aws_ssm_parameter.ubuntu_ami.value
-  instance_type          = var.target_instance_type
-  subnet_id              = aws_subnet.public.id
-  vpc_security_group_ids = [aws_security_group.target.id]
-  iam_instance_profile   = aws_iam_instance_profile.ec2.name
-
-  # Public IP is used only for outbound package/image downloads in this simple POC.
-  # There is NO public inbound security-group rule.
-  associate_public_ip_address = true
-
-  metadata_options {
-    http_endpoint               = "enabled"
-    http_tokens                 = "required"
-    http_put_response_hop_limit = 2
-  }
-
-  root_block_device {
-    volume_type           = "gp3"
-    volume_size           = var.target_root_gb
-    encrypted             = true
-    delete_on_termination = true
-  }
-
-  user_data = <<-USERDATA
-    #!/usr/bin/env bash
-    set -euxo pipefail
-
-    export DEBIAN_FRONTEND=noninteractive
-    TARGET_NAME="${format("%s-app-%02d", local.name_prefix, count.index + 1)}"
-
-    apt-get update
-    apt-get install -y docker.io curl jq python3
-    systemctl enable --now docker
-
-    # Ensure SSM agent is running on Ubuntu AWS images.
-    systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service || true
-
-    hostnamectl set-hostname "$TARGET_NAME"
-
-    install -d -m 700 -o ubuntu -g ubuntu /home/ubuntu/.ssh
-    cat >> /home/ubuntu/.ssh/authorized_keys <<'PUBKEY'
-    ${trimspace(tls_private_key.ansible.public_key_openssh)}
-    PUBKEY
-    chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys
-    chmod 600 /home/ubuntu/.ssh/authorized_keys
-
-    mkdir -p /opt/aiops-target /var/log/aiops-demo /opt/alloy
-
-    ############################################################################
-    # DEMO APPLICATION
-    ############################################################################
-
-    cat > /opt/aiops-target/app.py <<'PYEOF'
-    from http.server import HTTPServer, BaseHTTPRequestHandler
-    import logging
-
-    logging.basicConfig(
-        filename="/var/log/aiops-demo/app.log",
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-    )
-
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            logging.info("request path=%s", self.path)
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"AIOps Demo OK\n")
-
-    HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
-    PYEOF
-
-    cat > /etc/systemd/system/aiops-demo.service <<'SVCEOF'
-    [Unit]
-    Description=AIOps Demo Application
-    After=network-online.target
-    Wants=network-online.target
-
-    [Service]
-    ExecStart=/usr/bin/python3 /opt/aiops-target/app.py
-    Restart=always
-    RestartSec=3
-
-    [Install]
-    WantedBy=multi-user.target
-    SVCEOF
-
-    systemctl daemon-reload
-    systemctl enable --now aiops-demo
-
-    ############################################################################
-    # NODE EXPORTER
-    ############################################################################
-
-    docker run -d \
-      --name node-exporter \
-      --restart unless-stopped \
-      --network host \
-      --pid host \
-      -v "/:/host:ro,rslave" \
-      quay.io/prometheus/node-exporter:latest \
-      --path.rootfs=/host
-
-    ############################################################################
-    # GRAFANA ALLOY -> LOKI
-    ############################################################################
-
-    cat > /opt/alloy/config.alloy <<EOF
-    local.file_match "vm_logs" {
-      path_targets = [
-        { "__path__" = "/var/log/syslog", "job" = "system", "host" = "$TARGET_NAME" },
-        { "__path__" = "/var/log/auth.log", "job" = "auth", "host" = "$TARGET_NAME" },
-        { "__path__" = "/var/log/aiops-demo/*.log", "job" = "application", "host" = "$TARGET_NAME" }
-      ]
-    }
-
-    loki.source.file "files" {
-      targets    = local.file_match.vm_logs.targets
-      forward_to = [loki.write.aiops.receiver]
-    }
-
-    loki.write "aiops" {
-      endpoint {
-        url = "http://${local.aiops_dns}:3100/loki/api/v1/push"
-      }
-    }
-    EOF
-
-    docker run -d \
-      --name alloy \
-      --restart unless-stopped \
-      --network host \
-      -v /opt/alloy/config.alloy:/etc/alloy/config.alloy:ro \
-      -v /var/log:/var/log:ro \
-      grafana/alloy:latest \
-      run /etc/alloy/config.alloy
-
-    echo "INFO AIOps target bootstrap completed" >> /var/log/aiops-demo/app.log
-  USERDATA
-
-  tags = {
-    Name = format("%s-app-%02d", local.name_prefix, count.index + 1)
-    Role = "AIOpsTarget"
-  }
-
-  depends_on = [
-    aws_route_table_association.public,
-    aws_route53_record.aiops
-  ]
+BOOTSTRAP
 }
