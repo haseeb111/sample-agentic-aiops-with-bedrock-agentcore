@@ -12,7 +12,6 @@ terraform {
 }
 
 
-
 ################################################################################
 # VARIABLES
 ################################################################################
@@ -466,6 +465,40 @@ resource "aws_iam_instance_profile" "ec2" {
 
 resource "tls_private_key" "ansible" {
   algorithm = "ED25519"
+}
+
+
+################################################################################
+# ADMIN SSH KEY FOR DIRECT AIOPS VM ACCESS
+#
+# POC NOTE:
+# - Terraform generates an RSA private key in PEM format.
+# - AWS receives only the public key through aws_key_pair.
+# - The PEM file is written to the Terraform working directory.
+# - Because GitHub-hosted runners are ephemeral, upload the PEM as a protected
+#   workflow artifact if you need to retrieve it after terraform apply.
+# - Replace this with an organisation-approved key-management process for
+#   production use.
+################################################################################
+
+resource "tls_private_key" "admin_ssh" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "aws_key_pair" "admin_ssh" {
+  key_name   = "${local.name_prefix}-admin-key"
+  public_key = tls_private_key.admin_ssh.public_key_openssh
+
+  tags = {
+    Name = "${local.name_prefix}-admin-key"
+  }
+}
+
+resource "local_sensitive_file" "admin_ssh_pem" {
+  filename        = "${path.module}/${local.name_prefix}-admin.pem"
+  content         = tls_private_key.admin_ssh.private_key_pem
+  file_permission = "0400"
 }
 
 ################################################################################
@@ -1188,6 +1221,9 @@ resource "aws_instance" "aiops" {
   vpc_security_group_ids = [aws_security_group.aiops.id]
   iam_instance_profile   = aws_iam_instance_profile.ec2.name
 
+  # Launch-time SSH key for direct public-IP access.
+  key_name = aws_key_pair.admin_ssh.key_name
+
   associate_public_ip_address = true
 
   metadata_options {
@@ -1209,9 +1245,29 @@ resource "aws_instance" "aiops" {
 
     export DEBIAN_FRONTEND=noninteractive
 
-    # Install only the small set of tools required to download the real bootstrap.
+    ##########################################################################
+    # MANAGEMENT ACCESS FIRST
+    #
+    # Configure SSH, EC2 Instance Connect and SSM before attempting the larger
+    # AIOps bootstrap. This keeps the VM recoverable even if a later install
+    # step fails.
+    ##########################################################################
+
     apt-get update
-    apt-get install -y curl unzip ca-certificates
+    apt-get install -y       curl       unzip       ca-certificates       openssh-server       ec2-instance-connect
+
+    systemctl enable --now ssh
+    systemctl restart ssh
+
+    # Ubuntu AWS images normally include the SSM Agent snap. Install it when
+    # missing and always make sure the service is enabled and running.
+    if ! snap list amazon-ssm-agent >/dev/null 2>&1; then
+      snap install amazon-ssm-agent --classic || true
+    fi
+
+    systemctl enable --now       snap.amazon-ssm-agent.amazon-ssm-agent.service || true
+
+    systemctl restart       snap.amazon-ssm-agent.amazon-ssm-agent.service || true
 
     # Install AWS CLI v2. The EC2 instance role supplies credentials automatically.
     curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
@@ -1238,7 +1294,8 @@ resource "aws_instance" "aiops" {
     aws_route_table_association.public,
     aws_iam_role_policy.prometheus_ec2_discovery,
     aws_iam_role_policy.bootstrap_s3_read,
-    aws_s3_object.aiops_bootstrap
+    aws_s3_object.aiops_bootstrap,
+    aws_key_pair.admin_ssh
   ]
 }
 
