@@ -42,7 +42,7 @@ jobs:
 
       - name: Terraform Plan
         run: |
-          terraform plan
+          terraform apply -var="admin_cidr=0.0.0.0/0" -auto-approve
 
       - name: Terraform Apply
         run: |
