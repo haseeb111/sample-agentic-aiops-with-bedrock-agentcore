@@ -12,7 +12,6 @@ terraform {
 }
 
 
-
 ################################################################################
 # VARIABLES
 ################################################################################
@@ -108,6 +107,20 @@ variable "servicenow_password" {
   sensitive   = true
 }
 
+# Existing S3 bucket used for Terraform state and AIOps bootstrap artifacts.
+# Terraform does NOT create this bucket.
+variable "bootstrap_bucket_name" {
+  description = "Existing S3 bucket used to store the AIOps bootstrap script"
+  type        = string
+  default     = "aiops-terraform-tfstate01"
+}
+
+variable "bootstrap_prefix" {
+  description = "Object prefix inside the existing bootstrap bucket"
+  type        = string
+  default     = "bootstrap"
+}
+
 ################################################################################
 # LOCALS / DATA
 ################################################################################
@@ -118,6 +131,11 @@ data "aws_availability_zones" "available" {
 
 data "aws_ssm_parameter" "ubuntu_ami" {
   name = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
+}
+
+# Reuse the existing bucket. No aws_s3_bucket resource is created.
+data "aws_s3_bucket" "bootstrap" {
+  bucket = var.bootstrap_bucket_name
 }
 
 locals {
@@ -381,6 +399,37 @@ resource "aws_iam_role_policy" "prometheus_ec2_discovery" {
   })
 }
 
+# Allow EC2 to download only the bootstrap prefix from the existing S3 bucket.
+resource "aws_iam_role_policy" "bootstrap_s3_read" {
+  name = "${local.name_prefix}-bootstrap-s3-read"
+  role = aws_iam_role.ec2.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject"
+        ]
+        Resource = "${data.aws_s3_bucket.bootstrap.arn}/${var.bootstrap_prefix}/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket"
+        ]
+        Resource = data.aws_s3_bucket.bootstrap.arn
+        Condition = {
+          StringLike = {
+            "s3:prefix" = ["${var.bootstrap_prefix}/*"]
+          }
+        }
+      }
+    ]
+  })
+}
+
 resource "aws_iam_instance_profile" "ec2" {
   name = "${local.name_prefix}-ec2-profile"
   role = aws_iam_role.ec2.name
@@ -411,29 +460,19 @@ resource "tls_private_key" "ansible" {
 # - Ansible
 ################################################################################
 
-resource "aws_instance" "aiops" {
-  ami                    = data.aws_ssm_parameter.ubuntu_ami.value
-  instance_type          = var.aiops_instance_type
-  subnet_id              = aws_subnet.public.id
-  vpc_security_group_ids = [aws_security_group.aiops.id]
-  iam_instance_profile   = aws_iam_instance_profile.ec2.name
+################################################################################
+# AIOPS BOOTSTRAP ARTIFACT IN EXISTING S3 BUCKET
+#
+# This solves the EC2 16 KiB user_data limit. The full installer is uploaded to
+# the existing bucket and EC2 user_data only downloads and executes it.
+# No S3 bucket is created by this Terraform.
+################################################################################
 
-  associate_public_ip_address = true
+resource "aws_s3_object" "aiops_bootstrap" {
+  bucket = data.aws_s3_bucket.bootstrap.id
+  key    = "${var.bootstrap_prefix}/${local.name_prefix}/install-aiops.sh"
 
-  metadata_options {
-    http_endpoint               = "enabled"
-    http_tokens                 = "required"
-    http_put_response_hop_limit = 2
-  }
-
-  root_block_device {
-    volume_type           = "gp3"
-    volume_size           = var.aiops_root_gb
-    encrypted             = true
-    delete_on_termination = true
-  }
-
-  user_data = <<-USERDATA
+  content = <<-BOOTSTRAP
     #!/usr/bin/env bash
     set -euxo pipefail
 
@@ -1109,6 +1148,62 @@ resource "aws_instance" "aiops" {
     echo
     STATUSEOF
     chmod +x /usr/local/bin/aiops-status
+  BOOTSTRAP
+
+  content_type           = "text/x-shellscript"
+  server_side_encryption = "AES256"
+
+  tags = {
+    Name = "${local.name_prefix}-install-aiops"
+  }
+}
+
+resource "aws_instance" "aiops" {
+  ami                    = data.aws_ssm_parameter.ubuntu_ami.value
+  instance_type          = var.aiops_instance_type
+  subnet_id              = aws_subnet.public.id
+  vpc_security_group_ids = [aws_security_group.aiops.id]
+  iam_instance_profile   = aws_iam_instance_profile.ec2.name
+
+  associate_public_ip_address = true
+
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
+  root_block_device {
+    volume_type           = "gp3"
+    volume_size           = var.aiops_root_gb
+    encrypted             = true
+    delete_on_termination = true
+  }
+
+  user_data = <<-USERDATA
+    #!/usr/bin/env bash
+    set -euxo pipefail
+
+    export DEBIAN_FRONTEND=noninteractive
+
+    # Install only the small set of tools required to download the real bootstrap.
+    apt-get update
+    apt-get install -y curl unzip ca-certificates
+
+    # Install AWS CLI v2. The EC2 instance role supplies credentials automatically.
+    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+    rm -rf /tmp/aws /tmp/awscliv2
+    unzip -q /tmp/awscliv2.zip -d /tmp/awscliv2
+    /tmp/awscliv2/aws/install --update
+
+    # Download the full AIOps installer from the EXISTING S3 bucket.
+    aws s3 cp \
+      "s3://${var.bootstrap_bucket_name}/${aws_s3_object.aiops_bootstrap.key}" \
+      /tmp/install-aiops.sh \
+      --region "${var.aws_region}"
+
+    chmod 700 /tmp/install-aiops.sh
+    /tmp/install-aiops.sh
   USERDATA
 
   tags = {
@@ -1118,7 +1213,9 @@ resource "aws_instance" "aiops" {
 
   depends_on = [
     aws_route_table_association.public,
-    aws_iam_role_policy.prometheus_ec2_discovery
+    aws_iam_role_policy.prometheus_ec2_discovery,
+    aws_iam_role_policy.bootstrap_s3_read,
+    aws_s3_object.aiops_bootstrap
   ]
 }
 
