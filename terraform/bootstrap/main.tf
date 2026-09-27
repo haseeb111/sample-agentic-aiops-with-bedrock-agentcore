@@ -11,6 +11,35 @@ terraform {
 
 }
 
+
+terraform {
+  required_version = ">= 1.7.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = var.aws_region
+
+  default_tags {
+    tags = {
+      Project     = var.project_name
+      Environment = var.environment
+      ManagedBy   = "Terraform"
+      Solution    = "OpenSource-VM-AIOps"
+    }
+  }
+}
+
 ################################################################################
 # VARIABLES
 ################################################################################
@@ -177,39 +206,19 @@ resource "aws_route_table_association" "public" {
 
 ################################################################################
 # SECURITY GROUPS
+#
+# IMPORTANT:
+# The security groups are created first WITHOUT cross-referencing ingress rules.
+# Cross-security-group rules are created separately below with
+# aws_vpc_security_group_ingress_rule resources. This prevents the Terraform
+# dependency cycle:
+#   aws_security_group.aiops <-> aws_security_group.target
 ################################################################################
 
 resource "aws_security_group" "aiops" {
   name        = "${local.name_prefix}-aiops-sg"
   description = "AIOps platform security group"
   vpc_id      = aws_vpc.this.id
-
-  dynamic "ingress" {
-    for_each = toset(["3000", "8000", "9090", "9093", "6333"])
-    content {
-      description = "AIOps UI/API from admin CIDR"
-      from_port   = tonumber(ingress.value)
-      to_port     = tonumber(ingress.value)
-      protocol    = "tcp"
-      cidr_blocks = [var.admin_cidr]
-    }
-  }
-
-  ingress {
-    description     = "Loki ingestion from monitored VMs"
-    from_port       = 3100
-    to_port         = 3100
-    protocol        = "tcp"
-    security_groups = [aws_security_group.target.id]
-  }
-
-  egress {
-    description = "Outbound Internet/package/model downloads"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
 
   tags = {
     Name = "${local.name_prefix}-aiops-sg"
@@ -221,41 +230,120 @@ resource "aws_security_group" "target" {
   description = "Monitored VM security group"
   vpc_id      = aws_vpc.this.id
 
-  ingress {
-    description     = "Prometheus node_exporter scrape"
-    from_port       = 9100
-    to_port         = 9100
-    protocol        = "tcp"
-    security_groups = [aws_security_group.aiops.id]
-  }
-
-  ingress {
-    description     = "Ansible SSH from AIOps server"
-    from_port       = 22
-    to_port         = 22
-    protocol        = "tcp"
-    security_groups = [aws_security_group.aiops.id]
-  }
-
-  ingress {
-    description     = "Blackbox HTTP probe from AIOps server"
-    from_port       = 8080
-    to_port         = 8080
-    protocol        = "tcp"
-    security_groups = [aws_security_group.aiops.id]
-  }
-
-  egress {
-    description = "Outbound package installation and log forwarding"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
   tags = {
     Name = "${local.name_prefix}-target-sg"
   }
+}
+
+################################################################################
+# AIOPS SECURITY GROUP INGRESS RULES
+################################################################################
+
+resource "aws_vpc_security_group_ingress_rule" "aiops_grafana" {
+  security_group_id = aws_security_group.aiops.id
+  description       = "Grafana UI from admin CIDR"
+  cidr_ipv4         = var.admin_cidr
+  from_port         = 3000
+  to_port           = 3000
+  ip_protocol       = "tcp"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "aiops_fastapi" {
+  security_group_id = aws_security_group.aiops.id
+  description       = "FastAPI from admin CIDR"
+  cidr_ipv4         = var.admin_cidr
+  from_port         = 8000
+  to_port           = 8000
+  ip_protocol       = "tcp"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "aiops_prometheus" {
+  security_group_id = aws_security_group.aiops.id
+  description       = "Prometheus UI from admin CIDR"
+  cidr_ipv4         = var.admin_cidr
+  from_port         = 9090
+  to_port           = 9090
+  ip_protocol       = "tcp"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "aiops_alertmanager" {
+  security_group_id = aws_security_group.aiops.id
+  description       = "Alertmanager UI from admin CIDR"
+  cidr_ipv4         = var.admin_cidr
+  from_port         = 9093
+  to_port           = 9093
+  ip_protocol       = "tcp"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "aiops_qdrant" {
+  security_group_id = aws_security_group.aiops.id
+  description       = "Qdrant UI/API from admin CIDR"
+  cidr_ipv4         = var.admin_cidr
+  from_port         = 6333
+  to_port           = 6333
+  ip_protocol       = "tcp"
+}
+
+# Target VMs push logs to Loki running on the AIOps VM.
+resource "aws_vpc_security_group_ingress_rule" "aiops_loki_from_targets" {
+  security_group_id            = aws_security_group.aiops.id
+  description                  = "Loki ingestion from monitored VMs"
+  referenced_security_group_id = aws_security_group.target.id
+  from_port                    = 3100
+  to_port                      = 3100
+  ip_protocol                  = "tcp"
+}
+
+################################################################################
+# TARGET VM SECURITY GROUP INGRESS RULES
+################################################################################
+
+# Prometheus running on the AIOps VM scrapes node_exporter on the target VMs.
+resource "aws_vpc_security_group_ingress_rule" "target_node_exporter_from_aiops" {
+  security_group_id            = aws_security_group.target.id
+  description                  = "Prometheus node_exporter scrape from AIOps VM"
+  referenced_security_group_id = aws_security_group.aiops.id
+  from_port                    = 9100
+  to_port                      = 9100
+  ip_protocol                  = "tcp"
+}
+
+# Ansible running on the AIOps VM remediates target VMs over private SSH.
+resource "aws_vpc_security_group_ingress_rule" "target_ssh_from_aiops" {
+  security_group_id            = aws_security_group.target.id
+  description                  = "Ansible SSH from AIOps VM"
+  referenced_security_group_id = aws_security_group.aiops.id
+  from_port                    = 22
+  to_port                      = 22
+  ip_protocol                  = "tcp"
+}
+
+# Blackbox Exporter running on the AIOps VM probes the demo app on target VMs.
+resource "aws_vpc_security_group_ingress_rule" "target_demo_app_from_aiops" {
+  security_group_id            = aws_security_group.target.id
+  description                  = "Blackbox HTTP probe from AIOps VM"
+  referenced_security_group_id = aws_security_group.aiops.id
+  from_port                    = 8080
+  to_port                      = 8080
+  ip_protocol                  = "tcp"
+}
+
+################################################################################
+# SECURITY GROUP EGRESS RULES
+################################################################################
+
+resource "aws_vpc_security_group_egress_rule" "aiops_outbound" {
+  security_group_id = aws_security_group.aiops.id
+  description       = "Outbound Internet, package and model downloads"
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "-1"
+}
+
+resource "aws_vpc_security_group_egress_rule" "target_outbound" {
+  security_group_id = aws_security_group.target.id
+  description       = "Outbound package installation and log forwarding"
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "-1"
 }
 
 ################################################################################
