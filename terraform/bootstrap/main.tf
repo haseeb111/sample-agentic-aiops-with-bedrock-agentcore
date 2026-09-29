@@ -8,30 +8,34 @@ terraform {
   }
 }
 
+
 ################################################################################
 # VARIABLES
 ################################################################################
 
 variable "aws_region" {
-  description = "AWS region"
-  type        = string
-  default     = "us-east-1"
+  type    = string
+  default = "us-east-1"
 }
 
 variable "project_name" {
-  description = "Project prefix"
-  type        = string
-  default     = "aiops-demo"
+  type    = string
+  default = "aiops-demo"
 }
 
 variable "environment" {
-  description = "Environment name"
-  type        = string
-  default     = "dev"
+  type    = string
+  default = "dev"
 }
 
 variable "admin_cidr" {
-  description = "Your public IP/CIDR for SSH, Grafana, Prometheus, Alertmanager, FastAPI and Qdrant. Set to YOUR.PUBLIC.IP/32."
+  description = "Your public IP as x.x.x.x/32. Allowed to SSH and open Grafana/Prometheus/Alertmanager/FastAPI/Qdrant."
+  type        = string
+  default     = "0.0.0.0/0"
+}
+
+variable "app_ingress_cidr" {
+  description = "Who may reach the demo app through the load balancer"
   type        = string
   default     = "0.0.0.0/0"
 }
@@ -41,75 +45,46 @@ variable "vpc_cidr" {
   default = "10.50.0.0/16"
 }
 
-# Two subnets in two AZs: EKS, RDS and multi-node OpenSearch all require 2 AZs.
 variable "public_subnet_cidrs" {
-  type    = list(string)
-  default = ["10.50.1.0/24", "10.50.2.0/24"]
+  description = "Two subnets in two AZs (the ALB needs two)"
+  type        = list(string)
+  default     = ["10.50.1.0/24", "10.50.2.0/24"]
 }
 
-# ---------------------------------------------------------------- feature flags
-variable "enable_oss_aiops_vm" {
-  description = "Open-source AIOps VM (Prometheus, Loki, Grafana, Ollama, Qdrant, FastAPI, Ansible)"
-  type        = bool
-  default     = true
+variable "app_vm_count" {
+  type    = number
+  default = 2
 }
 
-variable "enable_eks" {
-  description = "EKS layer: Fluent Bit, kube-prometheus-stack, k8sgpt operator"
-  type        = bool
-  default     = true
-}
-
-variable "existing_eks_cluster_name" {
-  description = "Use an EXISTING EKS cluster instead of creating one (needs API or API_AND_CONFIG_MAP auth mode and the eks-pod-identity-agent add-on). Leave empty to create a new cluster."
-  type        = string
-  default     = ""
-}
-
-variable "enable_rds" {
-  description = "Demo PostgreSQL RDS instance with Performance Insights + Enhanced Monitoring"
-  type        = bool
-  default     = true
-}
-
-variable "enable_opensearch" {
-  description = "OpenSearch domain used as the RAG vector store"
-  type        = bool
-  default     = true
-}
-
-variable "enable_devops_guru" {
-  description = "Enable Amazon DevOps Guru (one resource collection per account/region - disable if already configured)"
-  type        = bool
-  default     = true
-}
-
-# ------------------------------------------------------------------- VM sizing
-variable "target_vm_count" {
-  description = "Number of monitored application VMs"
-  type        = number
-  default     = 2
-}
-
-variable "target_instance_type" {
+variable "app_instance_type" {
   type    = string
   default = "t3.small"
 }
 
-variable "aiops_instance_type" {
-  description = "AIOps VM. Needs ~16 GiB RAM for Docker stack + local Ollama model. t3.micro (1 GiB) runs out of memory and becomes unreachable over SSH/SSM."
+variable "db_instance_type" {
+  type    = string
+  default = "t3.small"
+}
+
+variable "monitoring_instance_type" {
+  description = "Needs ~16 GiB RAM for the Docker stack + local Ollama model. Smaller types run out of memory and become unreachable."
   type        = string
   default     = "t3.xlarge"
 }
 
-variable "target_root_gb" {
+variable "app_root_gb" {
+  type    = number
+  default = 20
+}
+
+variable "db_root_gb" {
   type    = number
   default = 30
 }
 
-variable "aiops_root_gb" {
+variable "monitoring_root_gb" {
   type    = number
-  default = 100
+  default = 60
 }
 
 variable "ollama_model" {
@@ -122,94 +97,9 @@ variable "ollama_embedding_model" {
   default = "nomic-embed-text"
 }
 
-variable "log_retention_days" {
-  type    = number
-  default = 30
-}
-
-# ------------------------------------------------------------------ Bedrock
-variable "bedrock_llm_model_id" {
-  description = "Bedrock chat model for RCA (Converse API). Claude 4.5 models need a geo/global inference profile ID."
-  type        = string
-  default     = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
-}
-
-variable "bedrock_embedding_model_id" {
-  type    = string
-  default = "amazon.titan-embed-text-v2:0"
-}
-
-variable "embedding_dimensions" {
-  type    = number
-  default = 1024
-}
-
-# -------------------------------------------------------------------- EKS
-variable "eks_version" {
-  type    = string
-  default = "1.34"
-}
-
-variable "eks_node_instance_type" {
-  type    = string
-  default = "t3.large"
-}
-
-variable "eks_node_desired" {
-  type    = number
-  default = 2
-}
-
-variable "k8sgpt_version" {
-  description = "k8sgpt image tag run by the operator"
-  type        = string
-  default     = "v0.4.32"
-}
-
-variable "k8sgpt_bedrock_model" {
-  description = "Model name passed to k8sgpt's amazonbedrock backend. Must be one the k8sgpt version supports."
-  type        = string
-  default     = "anthropic.claude-3-5-sonnet-20240620-v1:0"
-}
-
-# -------------------------------------------------------------------- RDS
-variable "rds_instance_class" {
-  type    = string
-  default = "db.t4g.medium"
-}
-
-variable "rds_engine_version" {
-  type    = string
-  default = "16"
-}
-
-# ------------------------------------------------------------- OpenSearch
-variable "opensearch_engine_version" {
-  type    = string
-  default = "OpenSearch_2.17"
-}
-
-variable "opensearch_instance_type" {
-  description = "PDF production sizing is r6g.large.search x2. t3.medium.search x1 is fine for a demo."
-  type        = string
-  default     = "t3.medium.search"
-}
-
-variable "opensearch_instance_count" {
-  type    = number
-  default = 1
-}
-
-variable "opensearch_volume_gb" {
-  type    = number
-  default = 20
-}
-
-# -------------------------------------------------------------- ServiceNow
-# Optional initial values. Terraform writes them ONCE into Secrets Manager and
-# then ignores changes, so you can rotate the secret outside Terraform.
+# Optional ServiceNow. Leave empty to skip ticket creation.
 variable "servicenow_url" {
-  description = "e.g. https://yourinstance.service-now.com - leave empty to skip ticket creation"
+  description = "e.g. https://yourinstance.service-now.com"
   type        = string
   default     = ""
 }
@@ -226,9 +116,8 @@ variable "servicenow_password" {
   sensitive = true
 }
 
-# --------------------------------------------------------------- bootstrap
 variable "bootstrap_bucket_name" {
-  description = "Existing S3 bucket used to store the AIOps bootstrap script (not created here)"
+  description = "EXISTING S3 bucket for the monitoring VM install script (not created here)"
   type        = string
   default     = "aiops-terraform-tfstate01"
 }
@@ -239,53 +128,11 @@ variable "bootstrap_prefix" {
 }
 
 ################################################################################
-# PROVIDERS
-################################################################################
-
-locals {
-  name_prefix = "${var.project_name}-${var.environment}"
-
-  # DevOps Guru analyses every resource carrying this tag (see section 6.5).
-  # PDF uses CloudFormation stacks, but Terraform resources are not in a
-  # CloudFormation stack, so tag-based coverage is used instead.
-  devops_guru_tag_key = "DevOps-Guru-aiops"
-}
-
-provider "aws" {
-  region = var.aws_region
-
-  default_tags {
-    tags = {
-      Project                     = var.project_name
-      Environment                 = var.environment
-      ManagedBy                   = "terraform"
-      (local.devops_guru_tag_key) = local.name_prefix
-    }
-  }
-}
-
-provider "helm" {
-  kubernetes {
-    host                   = local.eks_endpoint
-    cluster_ca_certificate = local.eks_ca
-    exec {
-      api_version = "client.authentication.k8s.io/v1beta1"
-      command     = "aws"
-      args        = ["eks", "get-token", "--cluster-name", local.eks_name, "--region", var.aws_region]
-    }
-  }
-}
-
-################################################################################
 # DATA / LOCALS
 ################################################################################
 
-data "aws_caller_identity" "current" {}
-
 data "aws_availability_zones" "available" {
   state = "available"
-  # use1-az3 has limited capacity and does not support EKS control planes.
-  exclude_zone_ids = ["use1-az3"]
 }
 
 data "aws_ssm_parameter" "ubuntu_ami" {
@@ -297,50 +144,59 @@ data "aws_s3_bucket" "bootstrap" {
 }
 
 locals {
-  account_id  = data.aws_caller_identity.current.account_id
-  azs         = slice(data.aws_availability_zones.available.names, 0, length(var.public_subnet_cidrs))
-  aiops_dns   = "aiops.aiops.internal"
-  vm_log_grp  = "/aiops/${var.environment}/vms"
-  eks_log_grp = "/aiops/${var.environment}/eks"
-  cw_param    = "AmazonCloudWatch-${local.name_prefix}-vm-config"
+  name_prefix    = "${var.project_name}-${var.environment}"
+  azs            = slice(data.aws_availability_zones.available.names, 0, length(var.public_subnet_cidrs))
+  dns_zone       = "aiops.internal"
+  monitoring_dns = "monitoring.${local.dns_zone}"
+  db_dns         = "db.${local.dns_zone}"
+  bootstrap_key  = "${var.bootstrap_prefix}/${local.name_prefix}/install-monitoring.sh"
 
-  create_eks = var.enable_eks && var.existing_eks_cluster_name == ""
-  eks_name   = local.create_eks ? try(module.eks[0].cluster_name, "") : var.existing_eks_cluster_name
-  eks_endpoint = local.create_eks ? try(module.eks[0].cluster_endpoint, "") : try(data.aws_eks_cluster.existing[0].endpoint, "")
-  eks_ca = base64decode(
-    local.create_eks ? try(module.eks[0].cluster_certificate_authority_data, "") : try(data.aws_eks_cluster.existing[0].certificate_authority[0].data, "")
-  )
+  app_names = [for i in range(var.app_vm_count) : format("%s-app-%02d", local.name_prefix, i + 1)]
+  db_name   = "${local.name_prefix}-db"
 
-  # Shared CloudWatch Agent install (PDF 6.2). Config comes from SSM Parameter Store.
-  cw_agent_install = <<-CWA
-    curl -fsSL -o /tmp/amazon-cloudwatch-agent.deb \
-      https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
-    dpkg -i -E /tmp/amazon-cloudwatch-agent.deb
-    /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
-      -a fetch-config -m ec2 -c ssm:${local.cw_param} -s
-  CWA
+  # Shared agent installer for app + DB VMs: node_exporter and Fluent Bit -> Loki.
+  # Usage in user_data:  install_agents "<host>" "job=/path/glob" ...
+  agents_fn = <<-AGENTS
+    install_agents() {
+      local host="$1"; shift
+      docker run -d --name node-exporter --restart unless-stopped \
+        --network host --pid host -v "/:/host:ro,rslave" \
+        quay.io/prometheus/node-exporter:latest --path.rootfs=/host
+
+      mkdir -p /etc/fluent-bit /var/lib/fluent-bit
+      {
+        printf '[SERVICE]\n    Flush     5\n    Log_Level warn\n\n'
+        for pair in "$@"; do
+          job="$${pair%%=*}"
+          path="$${pair#*=}"
+          printf '[INPUT]\n    Name             tail\n    Path             %s\n    Tag              %s\n    DB               /state/%s.db\n    Skip_Long_Lines  On\n\n' "$path" "$job" "$job"
+          printf '[OUTPUT]\n    Name             loki\n    Match            %s\n    Host             ${local.monitoring_dns}\n    Port             3100\n    Labels           job=%s, host=%s\n    Drop_Single_Key  On\n\n' "$job" "$job" "$host"
+        done
+      } > /etc/fluent-bit/fluent-bit.conf
+
+      docker run -d --name fluent-bit --restart unless-stopped --network host \
+        -v /etc/fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro \
+        -v /var/log:/var/log:ro \
+        -v /var/lib/fluent-bit:/state \
+        fluent/fluent-bit:latest
+    }
+  AGENTS
 }
 
 ################################################################################
-# NETWORKING
+# NETWORK
 ################################################################################
 
 resource "aws_vpc" "this" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
   enable_dns_hostnames = true
-
-  tags = {
-    Name = "${local.name_prefix}-vpc"
-  }
+  tags                 = { Name = "${local.name_prefix}-vpc" }
 }
 
 resource "aws_internet_gateway" "this" {
   vpc_id = aws_vpc.this.id
-
-  tags = {
-    Name = "${local.name_prefix}-igw"
-  }
+  tags   = { Name = "${local.name_prefix}-igw" }
 }
 
 resource "aws_subnet" "public" {
@@ -350,11 +206,7 @@ resource "aws_subnet" "public" {
   cidr_block              = var.public_subnet_cidrs[count.index]
   availability_zone       = local.azs[count.index]
   map_public_ip_on_launch = true
-
-  tags = {
-    Name                     = "${local.name_prefix}-public-snet-${count.index + 1}"
-    "kubernetes.io/role/elb" = "1"
-  }
+  tags                    = { Name = "${local.name_prefix}-public-${count.index + 1}" }
 }
 
 resource "aws_route_table" "public" {
@@ -365,9 +217,7 @@ resource "aws_route_table" "public" {
     gateway_id = aws_internet_gateway.this.id
   }
 
-  tags = {
-    Name = "${local.name_prefix}-public-rt"
-  }
+  tags = { Name = "${local.name_prefix}-public-rt" }
 }
 
 resource "aws_route_table_association" "public" {
@@ -377,264 +227,96 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-################################################################################
-# SECURITY GROUPS (created first, cross-SG rules added separately - no cycle)
-################################################################################
-
-resource "aws_security_group" "aiops" {
-  name        = "${local.name_prefix}-aiops-sg"
-  description = "AIOps platform security group"
-  vpc_id      = aws_vpc.this.id
-
-  tags = {
-    Name = "${local.name_prefix}-aiops-sg"
-  }
-}
-
-resource "aws_security_group" "target" {
-  name        = "${local.name_prefix}-target-sg"
-  description = "Monitored VM security group"
-  vpc_id      = aws_vpc.this.id
-
-  tags = {
-    Name = "${local.name_prefix}-target-sg"
-  }
-}
-
-locals {
-  aiops_admin_ports = {
-    ssh          = 22
-    grafana      = 3000
-    fastapi      = 8000
-    prometheus   = 9090
-    alertmanager = 9093
-    qdrant       = 6333
-  }
-}
-
-resource "aws_vpc_security_group_ingress_rule" "aiops_admin" {
-  for_each = local.aiops_admin_ports
-
-  security_group_id = aws_security_group.aiops.id
-  description       = "${each.key} from admin CIDR"
-  cidr_ipv4         = var.admin_cidr
-  from_port         = each.value
-  to_port           = each.value
-  ip_protocol       = "tcp"
-}
-
-resource "aws_vpc_security_group_ingress_rule" "aiops_loki_from_targets" {
-  security_group_id            = aws_security_group.aiops.id
-  description                  = "Loki ingestion from monitored VMs"
-  referenced_security_group_id = aws_security_group.target.id
-  from_port                    = 3100
-  to_port                      = 3100
-  ip_protocol                  = "tcp"
-}
-
-locals {
-  target_ports_from_aiops = {
-    node_exporter = 9100
-    ansible_ssh   = 22
-    demo_app      = 8080
-  }
-}
-
-resource "aws_vpc_security_group_ingress_rule" "target_from_aiops" {
-  for_each = local.target_ports_from_aiops
-
-  security_group_id            = aws_security_group.target.id
-  description                  = "${each.key} from AIOps VM"
-  referenced_security_group_id = aws_security_group.aiops.id
-  from_port                    = each.value
-  to_port                      = each.value
-  ip_protocol                  = "tcp"
-}
-
-resource "aws_vpc_security_group_ingress_rule" "target_ssh_from_admin" {
-  security_group_id = aws_security_group.target.id
-  description       = "SSH to monitored VMs from admin CIDR"
-  cidr_ipv4         = var.admin_cidr
-  from_port         = 22
-  to_port           = 22
-  ip_protocol       = "tcp"
-}
-
-resource "aws_vpc_security_group_egress_rule" "aiops_outbound" {
-  security_group_id = aws_security_group.aiops.id
-  description       = "Outbound Internet, package and model downloads"
-  cidr_ipv4         = "0.0.0.0/0"
-  ip_protocol       = "-1"
-}
-
-resource "aws_vpc_security_group_egress_rule" "target_outbound" {
-  security_group_id = aws_security_group.target.id
-  description       = "Outbound package installation and log forwarding"
-  cidr_ipv4         = "0.0.0.0/0"
-  ip_protocol       = "-1"
-}
-
-################################################################################
-# PRIVATE DNS
-################################################################################
-
 resource "aws_route53_zone" "private" {
-  name = "aiops.internal"
+  name = local.dns_zone
 
   vpc {
     vpc_id = aws_vpc.this.id
   }
+}
 
-  tags = {
-    Name = "${local.name_prefix}-private-zone"
+################################################################################
+# SECURITY GROUPS
+################################################################################
+
+resource "aws_security_group" "this" {
+  for_each = toset(["alb", "monitoring", "app", "db"])
+
+  name        = "${local.name_prefix}-${each.key}-sg"
+  description = "${local.name_prefix} ${each.key}"
+  vpc_id      = aws_vpc.this.id
+  tags        = { Name = "${local.name_prefix}-${each.key}-sg" }
+}
+
+locals {
+  # sg = group the rule belongs to; source is either a CIDR or another group.
+  ingress_rules = {
+    alb-http          = { sg = "alb", port = 80, cidr = var.app_ingress_cidr, src = null }
+    mon-ssh           = { sg = "monitoring", port = 22, cidr = var.admin_cidr, src = null }
+    mon-grafana       = { sg = "monitoring", port = 3000, cidr = var.admin_cidr, src = null }
+    mon-fastapi       = { sg = "monitoring", port = 8000, cidr = var.admin_cidr, src = null }
+    mon-prometheus    = { sg = "monitoring", port = 9090, cidr = var.admin_cidr, src = null }
+    mon-alertmanager  = { sg = "monitoring", port = 9093, cidr = var.admin_cidr, src = null }
+    mon-qdrant        = { sg = "monitoring", port = 6333, cidr = var.admin_cidr, src = null }
+    mon-loki-from-app = { sg = "monitoring", port = 3100, cidr = null, src = "app" }
+    mon-loki-from-db  = { sg = "monitoring", port = 3100, cidr = null, src = "db" }
+    app-http-from-alb = { sg = "app", port = 8080, cidr = null, src = "alb" }
+    app-http-from-mon = { sg = "app", port = 8080, cidr = null, src = "monitoring" }
+    app-node-exporter = { sg = "app", port = 9100, cidr = null, src = "monitoring" }
+    app-ssh-from-mon  = { sg = "app", port = 22, cidr = null, src = "monitoring" }
+    app-ssh-admin     = { sg = "app", port = 22, cidr = var.admin_cidr, src = null }
+    db-pg-from-app    = { sg = "db", port = 5432, cidr = null, src = "app" }
+    db-node-exporter  = { sg = "db", port = 9100, cidr = null, src = "monitoring" }
+    db-pg-exporter    = { sg = "db", port = 9187, cidr = null, src = "monitoring" }
+    db-ssh-from-mon   = { sg = "db", port = 22, cidr = null, src = "monitoring" }
+    db-ssh-admin      = { sg = "db", port = 22, cidr = var.admin_cidr, src = null }
   }
 }
 
-################################################################################
-# CENTRAL LOG STORE (CloudWatch Logs) - VMs and EKS ship to the same place
-################################################################################
+resource "aws_vpc_security_group_ingress_rule" "this" {
+  for_each = local.ingress_rules
 
-resource "aws_cloudwatch_log_group" "vms" {
-  name              = local.vm_log_grp
-  retention_in_days = var.log_retention_days
+  security_group_id            = aws_security_group.this[each.value.sg].id
+  description                  = each.key
+  ip_protocol                  = "tcp"
+  from_port                    = each.value.port
+  to_port                      = each.value.port
+  cidr_ipv4                    = each.value.cidr
+  referenced_security_group_id = each.value.src == null ? null : aws_security_group.this[each.value.src].id
 }
 
-resource "aws_cloudwatch_log_group" "eks" {
-  count = var.enable_eks ? 1 : 0
+resource "aws_vpc_security_group_egress_rule" "all" {
+  for_each = aws_security_group.this
 
-  name              = local.eks_log_grp
-  retention_in_days = var.log_retention_days
-}
-
-# CloudWatch Agent config (PDF 6.2) - metrics + logs from every VM.
-resource "aws_ssm_parameter" "cw_agent_config" {
-  name = local.cw_param
-  type = "String"
-  value = jsonencode({
-    agent = {
-      metrics_collection_interval = 60
-      run_as_user                 = "root"
-    }
-    metrics = {
-      namespace         = "CWAgent"
-      append_dimensions = { InstanceId = "$${aws:InstanceId}" }
-      metrics_collected = {
-        mem  = { measurement = ["mem_used_percent"] }
-        disk = { measurement = ["used_percent"], resources = ["/"] }
-      }
-    }
-    logs = {
-      logs_collected = {
-        files = {
-          collect_list = [
-            { file_path = "/var/log/syslog", log_group_name = local.vm_log_grp, log_stream_name = "{instance_id}/syslog" },
-            { file_path = "/var/log/auth.log", log_group_name = local.vm_log_grp, log_stream_name = "{instance_id}/auth" },
-            { file_path = "/var/log/aiops-demo/*.log", log_group_name = local.vm_log_grp, log_stream_name = "{instance_id}/app" },
-          ]
-        }
-      }
-    }
-  })
+  security_group_id = each.value.id
+  description       = "All outbound"
+  ip_protocol       = "-1"
+  cidr_ipv4         = "0.0.0.0/0"
 }
 
 ################################################################################
-# SECRETS MANAGER - ServiceNow credentials (PDF 6.8)
-# Update the real value outside Terraform, e.g.:
-#   aws secretsmanager put-secret-value --secret-id servicenow/aiops-demo-dev-credentials \
-#     --secret-string '{"instance_url":"https://x.service-now.com","client_id":"...","client_secret":"...","username":"...","password":"..."}'
-################################################################################
-
-resource "aws_secretsmanager_secret" "servicenow" {
-  name                    = "servicenow/${local.name_prefix}-credentials"
-  description             = "ServiceNow API credentials for the AIOps pipeline"
-  recovery_window_in_days = 0 # allows destroy + re-create with the same name
-}
-
-resource "aws_secretsmanager_secret_version" "servicenow" {
-  secret_id = aws_secretsmanager_secret.servicenow.id
-  secret_string = jsonencode({
-    instance_url  = var.servicenow_url
-    username      = var.servicenow_username
-    password      = var.servicenow_password
-    client_id     = ""
-    client_secret = ""
-  })
-
-  lifecycle {
-    ignore_changes = [secret_string]
-  }
-}
-
-################################################################################
-# IAM - shared policies
-################################################################################
-
-data "aws_iam_policy_document" "ec2_assume" {
-  statement {
-    effect  = "Allow"
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["ec2.amazonaws.com"]
-    }
-  }
-}
-
-data "aws_iam_policy_document" "pod_identity_assume" {
-  statement {
-    effect  = "Allow"
-    actions = ["sts:AssumeRole", "sts:TagSession"]
-    principals {
-      type        = "Service"
-      identifiers = ["pods.eks.amazonaws.com"]
-    }
-  }
-}
-
-# Least-privilege Bedrock access (PDF says scope down from FullAccess).
-resource "aws_iam_policy" "bedrock_invoke" {
-  name = "${local.name_prefix}-bedrock-invoke"
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
-        Resource = [
-          "arn:aws:bedrock:*::foundation-model/*",
-          "arn:aws:bedrock:*:${local.account_id}:inference-profile/*",
-        ]
-      },
-      {
-        # Needed the first time a Marketplace-backed model is invoked in the account.
-        Effect   = "Allow"
-        Action   = ["aws-marketplace:ViewSubscriptions", "aws-marketplace:Subscribe"]
-        Resource = "*"
-      }
-    ]
-  })
-}
-
-################################################################################
-# IAM - EC2 instance role (SSM, CloudWatch Agent, EC2 SD, bootstrap, secret)
+# IAM - one instance role for all VMs
 ################################################################################
 
 resource "aws_iam_role" "ec2" {
-  name               = "${local.name_prefix}-ec2-role"
-  assume_role_policy = data.aws_iam_policy_document.ec2_assume.json
+  name = "${local.name_prefix}-ec2-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Action    = "sts:AssumeRole"
+      Principal = { Service = "ec2.amazonaws.com" }
+    }]
+  })
 }
 
-resource "aws_iam_role_policy_attachment" "ec2_managed" {
-  for_each = toset([
-    "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore",
-    "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy",
-  ])
-
+resource "aws_iam_role_policy_attachment" "ssm" {
   role       = aws_iam_role.ec2.name
-  policy_arn = each.value
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-resource "aws_iam_role_policy" "ec2_inline" {
+resource "aws_iam_role_policy" "ec2" {
   name = "${local.name_prefix}-ec2-inline"
   role = aws_iam_role.ec2.id
 
@@ -644,29 +326,14 @@ resource "aws_iam_role_policy" "ec2_inline" {
       {
         Sid      = "PrometheusEc2Discovery"
         Effect   = "Allow"
-        Action   = ["ec2:DescribeInstances", "ec2:DescribeAvailabilityZones", "ec2:DescribeTags"]
+        Action   = ["ec2:DescribeInstances", "ec2:DescribeAvailabilityZones"]
         Resource = "*"
       },
       {
-        Sid      = "BootstrapRead"
+        Sid      = "ReadBootstrapScript"
         Effect   = "Allow"
         Action   = ["s3:GetObject"]
-        Resource = "${data.aws_s3_bucket.bootstrap.arn}/${var.bootstrap_prefix}/*"
-      },
-      {
-        Sid      = "BootstrapList"
-        Effect   = "Allow"
-        Action   = ["s3:ListBucket"]
-        Resource = data.aws_s3_bucket.bootstrap.arn
-        Condition = {
-          StringLike = { "s3:prefix" = ["${var.bootstrap_prefix}/*"] }
-        }
-      },
-      {
-        Sid      = "ServiceNowSecret"
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
-        Resource = aws_secretsmanager_secret.servicenow.arn
+        Resource = "${data.aws_s3_bucket.bootstrap.arn}/${local.bootstrap_key}"
       }
     ]
   })
@@ -678,87 +345,377 @@ resource "aws_iam_instance_profile" "ec2" {
 }
 
 ################################################################################
-# SSH KEYS
-# POC NOTE: private keys live in Terraform state. Replace with an approved
-# key-management process (or SSM Session Manager only) for production.
+# KEYS AND PASSWORDS
+# POC: private keys and passwords are kept in Terraform state.
 ################################################################################
 
-resource "tls_private_key" "ansible" {
-  algorithm = "ED25519"
-}
-
-resource "tls_private_key" "admin_ssh" {
+resource "tls_private_key" "admin" {
   algorithm = "RSA"
   rsa_bits  = 4096
 }
 
-resource "aws_key_pair" "admin_ssh" {
+resource "aws_key_pair" "admin" {
   key_name   = "${local.name_prefix}-admin-key"
-  public_key = tls_private_key.admin_ssh.public_key_openssh
+  public_key = tls_private_key.admin.public_key_openssh
 }
 
-resource "local_sensitive_file" "admin_ssh_pem" {
+resource "local_sensitive_file" "admin_pem" {
   filename        = "${path.module}/${local.name_prefix}-admin.pem"
-  content         = tls_private_key.admin_ssh.private_key_pem
+  content         = tls_private_key.admin.private_key_pem
   file_permission = "0400"
 }
 
-resource "random_password" "grafana_admin" {
+# Used by Ansible on the monitoring VM to reach the app/DB VMs.
+resource "tls_private_key" "ansible" {
+  algorithm = "ED25519"
+}
+
+resource "random_password" "db_app" {
+  length  = 24
+  special = false
+}
+
+resource "random_password" "db_exporter" {
+  length  = 24
+  special = false
+}
+
+resource "random_password" "grafana" {
   length  = 20
   special = false
 }
 
 ################################################################################
-# OPEN-SOURCE AIOPS VM (Prometheus/Alertmanager/Loki/Grafana/Ollama/Qdrant/
-# FastAPI/Ansible) - bootstrap script stored in the existing S3 bucket because
-# of the 16 KiB user_data limit.
+# DATABASE VM - PostgreSQL (free) + postgres_exporter + node_exporter + Fluent Bit
 ################################################################################
 
-resource "aws_s3_object" "aiops_bootstrap" {
-  count = var.enable_oss_aiops_vm ? 1 : 0
+resource "aws_instance" "db" {
+  ami                         = data.aws_ssm_parameter.ubuntu_ami.value
+  instance_type               = var.db_instance_type
+  subnet_id                   = aws_subnet.public[0].id
+  vpc_security_group_ids      = [aws_security_group.this["db"].id]
+  iam_instance_profile        = aws_iam_instance_profile.ec2.name
+  key_name                    = aws_key_pair.admin.key_name
+  associate_public_ip_address = true
 
-  bucket = data.aws_s3_bucket.bootstrap.id
-  key    = "${var.bootstrap_prefix}/${local.name_prefix}/install-aiops.sh"
+  metadata_options {
+    http_endpoint = "enabled"
+    http_tokens   = "required"
+  }
+
+  root_block_device {
+    volume_type = "gp3"
+    volume_size = var.db_root_gb
+    encrypted   = true
+  }
+
+  user_data_replace_on_change = true
+  user_data                   = <<-USERDATA
+    #!/usr/bin/env bash
+    set -euxo pipefail
+    export DEBIAN_FRONTEND=noninteractive
+    hostnamectl set-hostname "${local.db_name}"
+
+    apt-get update
+    apt-get install -y postgresql postgresql-contrib docker.io
+    systemctl enable --now docker
+
+    # Ansible key from the monitoring VM
+    install -d -m 700 -o ubuntu -g ubuntu /home/ubuntu/.ssh
+    echo "${trimspace(tls_private_key.ansible.public_key_openssh)}" >> /home/ubuntu/.ssh/authorized_keys
+    chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys
+    chmod 600 /home/ubuntu/.ssh/authorized_keys
+
+    # ------------------------------------------------------------ PostgreSQL
+    PG_VER=$(ls /etc/postgresql | sort -V | tail -1)
+    PG_DIR=/etc/postgresql/$PG_VER/main
+    cat >> $PG_DIR/postgresql.conf <<'PGCONF'
+    listen_addresses = '*'
+    shared_preload_libraries = 'pg_stat_statements'
+    log_min_duration_statement = 1000
+    log_connections = on
+    log_disconnections = on
+    PGCONF
+    echo "host appdb appuser ${var.vpc_cidr} scram-sha-256" >> $PG_DIR/pg_hba.conf
+    systemctl restart postgresql
+
+    sudo -u postgres psql -v ON_ERROR_STOP=1 <<SQL
+    CREATE ROLE appuser LOGIN PASSWORD '${random_password.db_app.result}';
+    CREATE DATABASE appdb OWNER appuser;
+    CREATE ROLE postgres_exporter LOGIN PASSWORD '${random_password.db_exporter.result}';
+    GRANT pg_monitor TO postgres_exporter;
+    SQL
+
+    sudo -u postgres psql -v ON_ERROR_STOP=1 -d appdb <<SQL
+    CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+    CREATE TABLE IF NOT EXISTS visits (id bigserial PRIMARY KEY, host text, created_at timestamptz DEFAULT now());
+    ALTER TABLE visits OWNER TO appuser;
+    SQL
+
+    # ------------------------------------------------------------ exporters + logs
+    docker run -d --name postgres-exporter --restart unless-stopped --network host \
+      -e DATA_SOURCE_NAME="postgresql://postgres_exporter:${random_password.db_exporter.result}@127.0.0.1:5432/postgres?sslmode=disable" \
+      quay.io/prometheuscommunity/postgres-exporter:latest
+
+    ${indent(4, local.agents_fn)}
+    install_agents "${local.db_name}" \
+      "system=/var/log/syslog" \
+      "auth=/var/log/auth.log" \
+      "postgres=/var/log/postgresql/*.log"
+  USERDATA
+
+  tags = {
+    Name      = local.db_name
+    Role      = "AIOpsDatabase"
+    Monitored = "true"
+  }
+
+  depends_on = [aws_route_table_association.public]
+}
+
+resource "aws_route53_record" "db" {
+  zone_id = aws_route53_zone.private.zone_id
+  name    = local.db_dns
+  type    = "A"
+  ttl     = 30
+  records = [aws_instance.db.private_ip]
+}
+
+################################################################################
+# DEMO APP VMs (2) - Python app on :8080 using PostgreSQL
+#   GET /     -> 200, app alive
+#   GET /db   -> writes + reads a row in PostgreSQL (500 if the DB is down)
+################################################################################
+
+resource "aws_instance" "app" {
+  count = var.app_vm_count
+
+  ami                         = data.aws_ssm_parameter.ubuntu_ami.value
+  instance_type               = var.app_instance_type
+  subnet_id                   = aws_subnet.public[count.index % length(aws_subnet.public)].id
+  vpc_security_group_ids      = [aws_security_group.this["app"].id]
+  iam_instance_profile        = aws_iam_instance_profile.ec2.name
+  key_name                    = aws_key_pair.admin.key_name
+  associate_public_ip_address = true
+
+  metadata_options {
+    http_endpoint = "enabled"
+    http_tokens   = "required"
+  }
+
+  root_block_device {
+    volume_type = "gp3"
+    volume_size = var.app_root_gb
+    encrypted   = true
+  }
+
+  user_data_replace_on_change = true
+  user_data                   = <<-USERDATA
+    #!/usr/bin/env bash
+    set -euxo pipefail
+    export DEBIAN_FRONTEND=noninteractive
+    HOST_NAME="${local.app_names[count.index]}"
+    hostnamectl set-hostname "$HOST_NAME"
+
+    apt-get update
+    apt-get install -y docker.io python3 python3-psycopg2
+    systemctl enable --now docker
+
+    install -d -m 700 -o ubuntu -g ubuntu /home/ubuntu/.ssh
+    echo "${trimspace(tls_private_key.ansible.public_key_openssh)}" >> /home/ubuntu/.ssh/authorized_keys
+    chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys
+    chmod 600 /home/ubuntu/.ssh/authorized_keys
+
+    mkdir -p /opt/aiops-demo /var/log/aiops-demo
+
+    cat > /etc/aiops-demo.env <<ENVEOF
+    APP_HOST=$HOST_NAME
+    DB_HOST=${local.db_dns}
+    DB_NAME=appdb
+    DB_USER=appuser
+    DB_PASSWORD=${random_password.db_app.result}
+    ENVEOF
+    chmod 600 /etc/aiops-demo.env
+
+    cat > /opt/aiops-demo/app.py <<'PYEOF'
+    import logging
+    import os
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    import psycopg2
+
+    logging.basicConfig(
+        filename="/var/log/aiops-demo/app.log",
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+    HOST = os.environ.get("APP_HOST", "unknown")
+
+
+    def db_visit():
+        conn = psycopg2.connect(
+            host=os.environ["DB_HOST"], dbname=os.environ["DB_NAME"],
+            user=os.environ["DB_USER"], password=os.environ["DB_PASSWORD"],
+            connect_timeout=3,
+        )
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute("INSERT INTO visits (host) VALUES (%s)", (HOST,))
+                cur.execute("SELECT count(*) FROM visits")
+                return cur.fetchone()[0]
+        finally:
+            conn.close()
+
+
+    class Handler(BaseHTTPRequestHandler):
+        def reply(self, code, text):
+            self.send_response(code)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(text.encode())
+
+        def do_GET(self):
+            if self.path.startswith("/db"):
+                try:
+                    count = db_visit()
+                    logging.info("db ok path=%s visits=%s", self.path, count)
+                    self.reply(200, f"DB OK from {HOST}: {count} visits\n")
+                except Exception as exc:
+                    logging.error("db error path=%s error=%s", self.path, exc)
+                    self.reply(500, f"DB ERROR from {HOST}: {exc}\n")
+                return
+            logging.info("request path=%s", self.path)
+            self.reply(200, f"AIOps Demo OK from {HOST}\n")
+
+        def log_message(self, *args):
+            pass
+
+
+    ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+    PYEOF
+
+    cat > /etc/systemd/system/aiops-demo.service <<'SVCEOF'
+    [Unit]
+    Description=AIOps Demo Application
+    After=network-online.target
+    Wants=network-online.target
+
+    [Service]
+    EnvironmentFile=/etc/aiops-demo.env
+    ExecStart=/usr/bin/python3 /opt/aiops-demo/app.py
+    Restart=always
+    RestartSec=3
+
+    [Install]
+    WantedBy=multi-user.target
+    SVCEOF
+
+    systemctl daemon-reload
+    systemctl enable --now aiops-demo
+
+    ${indent(4, local.agents_fn)}
+    install_agents "$HOST_NAME" \
+      "system=/var/log/syslog" \
+      "auth=/var/log/auth.log" \
+      "application=/var/log/aiops-demo/*.log"
+
+    echo "INFO AIOps demo app bootstrap completed" >> /var/log/aiops-demo/app.log
+  USERDATA
+
+  tags = {
+    Name      = local.app_names[count.index]
+    Role      = "AIOpsApp"
+    Monitored = "true"
+  }
+
+  depends_on = [aws_route_table_association.public, aws_route53_record.db, aws_route53_record.monitoring]
+}
+
+################################################################################
+# LOAD BALANCER - ALB :80 -> app VMs :8080
+################################################################################
+
+resource "aws_lb" "app" {
+  name               = "${local.name_prefix}-alb"
+  load_balancer_type = "application"
+  internal           = false
+  security_groups    = [aws_security_group.this["alb"].id]
+  subnets            = aws_subnet.public[*].id
+}
+
+resource "aws_lb_target_group" "app" {
+  name     = "${local.name_prefix}-tg"
+  port     = 8080
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.this.id
+
+  health_check {
+    path                = "/"
+    matcher             = "200"
+    interval            = 15
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+  }
+}
+
+resource "aws_lb_target_group_attachment" "app" {
+  count = var.app_vm_count
+
+  target_group_arn = aws_lb_target_group.app.arn
+  target_id        = aws_instance.app[count.index].id
+  port             = 8080
+}
+
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.app.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app.arn
+  }
+}
+
+################################################################################
+# MONITORING + AIOPS VM
+# The full installer is larger than the 16 KiB user_data limit, so it is stored
+# in the existing S3 bucket and user_data downloads and runs it.
+################################################################################
+
+resource "aws_s3_object" "monitoring_bootstrap" {
+  bucket                 = data.aws_s3_bucket.bootstrap.id
+  key                    = local.bootstrap_key
+  content_type           = "text/x-shellscript"
+  server_side_encryption = "AES256"
 
   content = <<-BOOTSTRAP
     #!/usr/bin/env bash
     set -euxo pipefail
-
     export DEBIAN_FRONTEND=noninteractive
 
     apt-get update
-    apt-get install -y docker.io docker-compose-v2 curl jq python3 python3-pip ansible unzip
+    apt-get install -y docker.io docker-compose-v2 curl jq
     systemctl enable --now docker
 
     mkdir -p /opt/aiops/{prometheus,alertmanager,blackbox,loki,grafana/provisioning/datasources,fastapi,ansible/playbooks,keys}
     chmod 700 /opt/aiops/keys
 
-    cat > /opt/aiops/keys/ansible_ed25519 <<'ANSIBLEKEY'
-    ${tls_private_key.ansible.private_key_openssh}
-    ANSIBLEKEY
+    cat > /opt/aiops/keys/ansible_ed25519 <<'KEYEOF'
+    ${trimspace(tls_private_key.ansible.private_key_openssh)}
+    KEYEOF
     chmod 600 /opt/aiops/keys/ansible_ed25519
 
-    ############################################################################
-    # SECRETS -> .env (ServiceNow from Secrets Manager, never baked into S3)
-    ############################################################################
-
-    SN_JSON=$(aws secretsmanager get-secret-value \
-      --secret-id "${aws_secretsmanager_secret.servicenow.arn}" \
-      --region "${var.aws_region}" --query SecretString --output text || echo '{}')
-
     umask 077
-    cat > /opt/aiops/.env <<ENVEOF
-    SERVICENOW_URL=$(echo "$SN_JSON" | jq -r '.instance_url // ""')
-    SERVICENOW_USERNAME=$(echo "$SN_JSON" | jq -r '.username // ""')
-    SERVICENOW_PASSWORD=$(echo "$SN_JSON" | jq -r '.password // ""')
-    GF_SECURITY_ADMIN_PASSWORD=${random_password.grafana_admin.result}
+    cat > /opt/aiops/.env <<'ENVEOF'
+    SERVICENOW_URL=${var.servicenow_url}
+    SERVICENOW_USERNAME=${var.servicenow_username}
+    SERVICENOW_PASSWORD=${var.servicenow_password}
+    GF_SECURITY_ADMIN_PASSWORD=${random_password.grafana.result}
     ENVEOF
     umask 022
 
-    ############################################################################
-    # PROMETHEUS
-    ############################################################################
-
+    # ============================================================ PROMETHEUS
     cat > /opt/aiops/prometheus/prometheus.yml <<'PROMEOF'
     global:
       scrape_interval: 15s
@@ -773,28 +730,49 @@ resource "aws_s3_object" "aiops_bootstrap" {
             - targets: ["alertmanager:9093"]
 
     scrape_configs:
-      - job_name: "node-exporter"
+      - job_name: node-exporter
         ec2_sd_configs:
           - region: ${var.aws_region}
             port: 9100
             filters:
-              - name: tag:Role
-                values: ["AIOpsTarget"]
+              - name: tag:Monitored
+                values: ["true"]
+              - name: tag:Project
+                values: ["${var.project_name}"]
               - name: instance-state-name
                 values: ["running"]
         relabel_configs:
-          - source_labels: [__meta_ec2_private_ip]
-            regex: (.+)
-            target_label: __address__
-            replacement: $1:9100
           - source_labels: [__meta_ec2_private_ip]
             target_label: private_ip
           - source_labels: [__meta_ec2_tag_Name]
             target_label: host
           - source_labels: [__meta_ec2_instance_id]
             target_label: instance_id
+          - source_labels: [__meta_ec2_tag_Role]
+            target_label: role
 
-      - job_name: "blackbox-http"
+      - job_name: postgres
+        ec2_sd_configs:
+          - region: ${var.aws_region}
+            port: 9187
+            filters:
+              - name: tag:Role
+                values: ["AIOpsDatabase"]
+              - name: tag:Project
+                values: ["${var.project_name}"]
+              - name: instance-state-name
+                values: ["running"]
+        relabel_configs:
+          - source_labels: [__meta_ec2_private_ip]
+            target_label: private_ip
+          - source_labels: [__meta_ec2_tag_Name]
+            target_label: host
+          - source_labels: [__meta_ec2_instance_id]
+            target_label: instance_id
+          - source_labels: [__meta_ec2_tag_Role]
+            target_label: role
+
+      - job_name: blackbox-app
         metrics_path: /probe
         params:
           module: [http_2xx]
@@ -803,12 +781,13 @@ resource "aws_s3_object" "aiops_bootstrap" {
             port: 8080
             filters:
               - name: tag:Role
-                values: ["AIOpsTarget"]
+                values: ["AIOpsApp"]
+              - name: tag:Project
+                values: ["${var.project_name}"]
               - name: instance-state-name
                 values: ["running"]
         relabel_configs:
           - source_labels: [__meta_ec2_private_ip]
-            regex: (.+)
             target_label: __param_target
             replacement: http://$1:8080/
           - source_labels: [__meta_ec2_private_ip]
@@ -819,69 +798,96 @@ resource "aws_s3_object" "aiops_bootstrap" {
             target_label: instance_id
           - target_label: __address__
             replacement: blackbox:9115
+
+      - job_name: blackbox-alb
+        metrics_path: /probe
+        params:
+          module: [http_2xx]
+        static_configs:
+          - targets:
+              - http://${aws_lb.app.dns_name}/
+              - http://${aws_lb.app.dns_name}/db
+            labels:
+              host: ${local.name_prefix}-alb
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - source_labels: [__address__]
+            target_label: url
+          - target_label: __address__
+            replacement: blackbox:9115
     PROMEOF
 
     cat > /opt/aiops/prometheus/alerts.yml <<'ALERTEOF'
     groups:
       - name: vm-alerts
         rules:
-          - alert: TargetVMMonitoringDown
+          - alert: VMMonitoringDown
             expr: up{job="node-exporter"} == 0
             for: 1m
-            labels:
-              severity: critical
+            labels: {severity: critical}
             annotations:
-              summary: "VM monitoring unavailable on {{ $labels.host }}"
-              description: "Prometheus cannot scrape node_exporter on {{ $labels.host }}."
+              summary: "Cannot scrape node_exporter on {{ $labels.host }}"
 
           - alert: DemoApplicationDown
-            expr: probe_success{job="blackbox-http"} == 0
+            expr: probe_success{job="blackbox-app"} == 0
             for: 30s
-            labels:
-              severity: critical
+            labels: {severity: critical}
             annotations:
-              summary: "Demo application unavailable on {{ $labels.host }}"
-              description: "HTTP probe failed for {{ $labels.host }}."
+              summary: "Demo application down on {{ $labels.host }}"
 
           - alert: HighCPU
-            expr: 100 - (avg by(instance,host,instance_id,private_ip) (rate(node_cpu_seconds_total{job="node-exporter",mode="idle"}[5m])) * 100) > 85
+            expr: 100 - (avg by (host, instance_id, private_ip) (rate(node_cpu_seconds_total{job="node-exporter",mode="idle"}[5m])) * 100) > 85
             for: 3m
-            labels:
-              severity: warning
+            labels: {severity: warning}
             annotations:
-              summary: "High CPU on {{ $labels.host }}"
-              description: "CPU has been above 85 percent for 3 minutes."
+              summary: "CPU above 85% on {{ $labels.host }}"
 
           - alert: HighMemory
-            expr: (1 - (node_memory_MemAvailable_bytes{job="node-exporter"} / node_memory_MemTotal_bytes{job="node-exporter"})) * 100 > 90
+            expr: (1 - node_memory_MemAvailable_bytes{job="node-exporter"} / node_memory_MemTotal_bytes{job="node-exporter"}) * 100 > 90
             for: 3m
-            labels:
-              severity: critical
+            labels: {severity: critical}
             annotations:
-              summary: "High memory on {{ $labels.host }}"
-              description: "Memory usage has been above 90 percent for 3 minutes."
+              summary: "Memory above 90% on {{ $labels.host }}"
 
           - alert: LowDiskSpace
-            expr: (node_filesystem_avail_bytes{job="node-exporter",mountpoint="/"} / node_filesystem_size_bytes{job="node-exporter",mountpoint="/"}) * 100 < 15
+            expr: node_filesystem_avail_bytes{job="node-exporter",mountpoint="/"} / node_filesystem_size_bytes{job="node-exporter",mountpoint="/"} * 100 < 15
             for: 5m
-            labels:
-              severity: warning
+            labels: {severity: warning}
             annotations:
-              summary: "Low disk space on {{ $labels.host }}"
-              description: "Root filesystem has less than 15 percent free space."
+              summary: "Less than 15% disk free on {{ $labels.host }}"
+
+      - name: database-alerts
+        rules:
+          - alert: PostgresDown
+            expr: pg_up{job="postgres"} == 0 or up{job="postgres"} == 0
+            for: 1m
+            labels: {severity: critical}
+            annotations:
+              summary: "PostgreSQL is down on {{ $labels.host }}"
+
+          - alert: PostgresTooManyConnections
+            expr: sum by (host, instance_id, private_ip) (pg_stat_activity_count{job="postgres"}) > 80
+            for: 2m
+            labels: {severity: warning}
+            annotations:
+              summary: "More than 80 PostgreSQL connections on {{ $labels.host }}"
+
+      - name: load-balancer-alerts
+        rules:
+          - alert: LoadBalancerEndpointFailing
+            expr: probe_success{job="blackbox-alb"} == 0
+            for: 1m
+            labels: {severity: critical}
+            annotations:
+              summary: "Load balancer check failing for {{ $labels.url }}"
     ALERTEOF
 
-    ############################################################################
-    # ALERTMANAGER -> FASTAPI WEBHOOK
-    ############################################################################
-
+    # ============================================================ ALERTMANAGER
     cat > /opt/aiops/alertmanager/alertmanager.yml <<'AMEOF'
-    global:
-      resolve_timeout: 5m
-
     route:
       receiver: aiops-webhook
-      group_by: [alertname, host, instance_id]
+      group_by: [alertname, host]
       group_wait: 15s
       group_interval: 1m
       repeat_interval: 30m
@@ -893,10 +899,7 @@ resource "aws_s3_object" "aiops_bootstrap" {
             send_resolved: true
     AMEOF
 
-    ############################################################################
-    # BLACKBOX EXPORTER
-    ############################################################################
-
+    # ============================================================ BLACKBOX
     cat > /opt/aiops/blackbox/blackbox.yml <<'BBEOF'
     modules:
       http_2xx:
@@ -904,14 +907,10 @@ resource "aws_s3_object" "aiops_bootstrap" {
         timeout: 5s
         http:
           preferred_ip_protocol: ip4
-          valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
           valid_status_codes: [200]
     BBEOF
 
-    ############################################################################
-    # LOKI
-    ############################################################################
-
+    # ============================================================ LOKI
     cat > /opt/aiops/loki/loki.yml <<'LOKIEOF'
     auth_enabled: false
 
@@ -944,11 +943,8 @@ resource "aws_s3_object" "aiops_bootstrap" {
       allow_structured_metadata: true
     LOKIEOF
 
-    ############################################################################
-    # GRAFANA DATASOURCE PROVISIONING
-    ############################################################################
-
-    cat > /opt/aiops/grafana/provisioning/datasources/datasources.yml <<'GRAFANADSEOF'
+    # ============================================================ GRAFANA
+    cat > /opt/aiops/grafana/provisioning/datasources/datasources.yml <<'DSEOF'
     apiVersion: 1
     datasources:
       - name: Prometheus
@@ -956,18 +952,13 @@ resource "aws_s3_object" "aiops_bootstrap" {
         access: proxy
         url: http://prometheus:9090
         isDefault: true
-        editable: true
       - name: Loki
         type: loki
         access: proxy
         url: http://loki:3100
-        editable: true
-    GRAFANADSEOF
+    DSEOF
 
-    ############################################################################
-    # ANSIBLE REMEDIATION PLAYBOOKS
-    ############################################################################
-
+    # ============================================================ ANSIBLE
     cat > /opt/aiops/ansible/playbooks/restart-app.yml <<'ANSIBLEEOF'
     ---
     - name: Restart AIOps demo application
@@ -991,10 +982,7 @@ resource "aws_s3_object" "aiops_bootstrap" {
             var: service_state.stdout
     ANSIBLEEOF
 
-    ############################################################################
-    # FASTAPI / RAG / SERVICENOW / REMEDIATION SERVICE
-    ############################################################################
-
+    # ============================================================ FASTAPI (RAG)
     cat > /opt/aiops/fastapi/requirements.txt <<'REQEOF'
     fastapi
     uvicorn[standard]
@@ -1004,12 +992,12 @@ resource "aws_s3_object" "aiops_bootstrap" {
 
     cat > /opt/aiops/fastapi/Dockerfile <<'DOCKEREOF'
     FROM python:3.12-slim
-    RUN apt-get update && apt-get install -y ansible openssh-client && rm -rf /var/lib/apt/lists/*
+    RUN apt-get update && apt-get install -y --no-install-recommends ansible openssh-client && rm -rf /var/lib/apt/lists/*
     WORKDIR /app
     COPY requirements.txt .
     RUN pip install --no-cache-dir -r requirements.txt
     COPY app.py .
-    CMD ["uvicorn","app:app","--host","0.0.0.0","--port","8000"]
+    CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
     DOCKEREOF
 
     cat > /opt/aiops/fastapi/app.py <<'PYEOF'
@@ -1021,7 +1009,7 @@ resource "aws_s3_object" "aiops_bootstrap" {
     from typing import Any
 
     import requests
-    from fastapi import FastAPI, Request
+    from fastapi import BackgroundTasks, FastAPI, Request
     from qdrant_client import QdrantClient
     from qdrant_client.models import Distance, PointStruct, VectorParams
 
@@ -1043,6 +1031,14 @@ resource "aws_s3_object" "aiops_bootstrap" {
     SAFE_PLAYBOOKS = {
         "RESTART_APP": "/ansible/playbooks/restart-app.yml"
     }
+
+    # Guardrail: a playbook may only run for the alerts listed here, whatever the LLM says.
+    ALLOWED_AUTOMATION = {
+        "RESTART_APP": {"DemoApplicationDown"},
+    }
+
+    # Last processed incidents, visible at GET /incidents
+    INCIDENTS: list[dict] = []
 
     # Dedupe window (PDF section 4): don't re-run the LLM for the same alert.
     DEDUPE_SECONDS = int(os.getenv("DEDUPE_SECONDS", "1800"))
@@ -1151,7 +1147,7 @@ resource "aws_s3_object" "aiops_bootstrap" {
     Safety requirements:
     - Never invent or execute arbitrary shell commands.
     - Choose RESTART_APP only when the demo application is clearly unavailable or stopped.
-    - For CPU, memory, disk, unknown, network, security or destructive conditions choose HUMAN_REVIEW.
+    - For database, CPU, memory, disk, load balancer, unknown, network, security or destructive conditions choose HUMAN_REVIEW.
     - If uncertain set safe_to_automate=false.
     """
 
@@ -1241,83 +1237,103 @@ resource "aws_s3_object" "aiops_bootstrap" {
         return {"stored": True, "collection": COLLECTION}
 
 
+    def handle_alert(alert: dict) -> dict:
+        labels = alert.get("labels", {})
+        alertname = labels.get("alertname", "VM alert")
+        host = labels.get("host", labels.get("instance", "unknown"))
+        target_ip = labels.get("private_ip", "")
+
+        logs = recent_logs(host)
+        context = json.dumps(alert) + "\n" + logs
+        vector = make_embedding(context)
+        history = find_similar(vector)
+        analysis = ask_llm(alert, logs, history)
+
+        ticket = create_servicenow(
+            f"AIOps: {alertname} on {host}",
+            json.dumps(
+                {
+                    "alert": alert,
+                    "analysis": analysis,
+                    "recent_logs": logs[:10000],
+                    "similar_incidents": history,
+                },
+                indent=2,
+            ),
+        )
+
+        remediation = {"skipped": True, "reason": "Human review required"}
+        remediation_id = analysis.get("remediation_id", "HUMAN_REVIEW")
+        if (
+            analysis.get("safe_to_automate") is True
+            and alertname in ALLOWED_AUTOMATION.get(remediation_id, set())
+        ):
+            remediation = run_remediation(remediation_id, target_ip)
+
+        return {
+            "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "alertname": alertname,
+            "host": host,
+            "target_ip": target_ip,
+            "analysis": analysis,
+            "ticket": ticket,
+            "remediation": remediation,
+        }
+
+
+    def process_alerts(alerts: list[dict]):
+        for alert in alerts:
+            try:
+                result = handle_alert(alert)
+            except Exception as exc:
+                result = {"alert": alert.get("labels", {}), "error": str(exc)}
+            print(json.dumps(result, default=str), flush=True)
+            INCIDENTS.insert(0, result)
+            del INCIDENTS[50:]
+
+
+    @app.get("/incidents")
+    def incidents():
+        return INCIDENTS
+
+
     @app.post("/alerts")
-    async def alerts(request: Request):
+    async def alerts(request: Request, background: BackgroundTasks):
+        """Alertmanager webhook. Returns immediately; the LLM work runs in the background
+        so Alertmanager does not time out and resend the same alert."""
         payload = await request.json()
-        results = []
+        queued, skipped = [], []
 
         for alert in payload.get("alerts", []):
             labels = alert.get("labels", {})
-            status = alert.get("status", "firing")
             host = labels.get("host", labels.get("instance", "unknown"))
-            target_ip = labels.get("private_ip", "")
-
-            if status != "firing":
-                results.append({"host": host, "status": status})
+            if alert.get("status", "firing") != "firing":
+                skipped.append({"host": host, "status": "resolved"})
                 continue
-
             dedupe_key = f"{labels.get('alertname')}|{host}|{alert.get('startsAt', '')}"
             if seen_recently(dedupe_key):
-                results.append({"host": host, "skipped": "duplicate alert within dedupe window"})
+                skipped.append({"host": host, "status": "duplicate"})
                 continue
+            queued.append(alert)
 
-            logs = recent_logs(host)
-            context = json.dumps(alert) + "\n" + logs
-            vector = make_embedding(context)
-            history = find_similar(vector)
-            analysis = ask_llm(alert, logs, history)
-
-            ticket = create_servicenow(
-                f"AIOps: {labels.get('alertname', 'VM alert')} on {host}",
-                json.dumps(
-                    {
-                        "alert": alert,
-                        "analysis": analysis,
-                        "recent_logs": logs[:10000],
-                        "similar_incidents": history,
-                    },
-                    indent=2,
-                ),
-            )
-
-            remediation = {"skipped": True, "reason": "Human review required"}
-            if analysis.get("safe_to_automate") is True:
-                remediation = run_remediation(
-                    analysis.get("remediation_id", "HUMAN_REVIEW"),
-                    target_ip,
-                )
-
-            results.append(
-                {
-                    "host": host,
-                    "target_ip": target_ip,
-                    "analysis": analysis,
-                    "ticket": ticket,
-                    "remediation": remediation,
-                }
-            )
-
-        return {"processed": results}
+        if queued:
+            background.add_task(process_alerts, queued)
+        return {"queued": len(queued), "skipped": skipped}
     PYEOF
 
-    ############################################################################
-    # DOCKER COMPOSE STACK
-    ############################################################################
-
+    # ============================================================ COMPOSE
     cat > /opt/aiops/docker-compose.yml <<'COMPOSEEOF'
     services:
       prometheus:
         image: prom/prometheus:latest
         container_name: prometheus
         restart: unless-stopped
-        command:
-          - --config.file=/etc/prometheus/prometheus.yml
+        command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=7d"]
         volumes:
           - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
           - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
           - prometheus-data:/prometheus
-        ports:
-          - "9090:9090"
+        ports: ["9090:9090"]
 
       alertmanager:
         image: prom/alertmanager:latest
@@ -1325,15 +1341,13 @@ resource "aws_s3_object" "aiops_bootstrap" {
         restart: unless-stopped
         volumes:
           - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-        ports:
-          - "9093:9093"
+        ports: ["9093:9093"]
 
       blackbox:
         image: prom/blackbox-exporter:latest
         container_name: blackbox
         restart: unless-stopped
-        command:
-          - --config.file=/config/blackbox.yml
+        command: ["--config.file=/config/blackbox.yml"]
         volumes:
           - ./blackbox/blackbox.yml:/config/blackbox.yml:ro
 
@@ -1341,12 +1355,11 @@ resource "aws_s3_object" "aiops_bootstrap" {
         image: grafana/loki:latest
         container_name: loki
         restart: unless-stopped
-        command: -config.file=/etc/loki/loki.yml
+        command: ["-config.file=/etc/loki/loki.yml"]
         volumes:
           - ./loki/loki.yml:/etc/loki/loki.yml:ro
           - loki-data:/loki
-        ports:
-          - "3100:3100"
+        ports: ["3100:3100"]
 
       grafana:
         image: grafana/grafana:latest
@@ -1356,11 +1369,8 @@ resource "aws_s3_object" "aiops_bootstrap" {
         volumes:
           - grafana-data:/var/lib/grafana
           - ./grafana/provisioning:/etc/grafana/provisioning:ro
-        ports:
-          - "3000:3000"
-        depends_on:
-          - prometheus
-          - loki
+        ports: ["3000:3000"]
+        depends_on: [prometheus, loki]
 
       qdrant:
         image: qdrant/qdrant:latest
@@ -1368,9 +1378,7 @@ resource "aws_s3_object" "aiops_bootstrap" {
         restart: unless-stopped
         volumes:
           - qdrant-data:/qdrant/storage
-        ports:
-          - "6333:6333"
-          - "6334:6334"
+        ports: ["6333:6333"]
 
       ollama:
         image: ollama/ollama:latest
@@ -1378,8 +1386,7 @@ resource "aws_s3_object" "aiops_bootstrap" {
         restart: unless-stopped
         volumes:
           - ollama-data:/root/.ollama
-        ports:
-          - "127.0.0.1:11434:11434"
+        ports: ["127.0.0.1:11434:11434"]
 
       fastapi:
         build: ./fastapi
@@ -1396,12 +1403,8 @@ resource "aws_s3_object" "aiops_bootstrap" {
         volumes:
           - ./ansible:/ansible:ro
           - ./keys:/keys:ro
-        ports:
-          - "8000:8000"
-        depends_on:
-          - loki
-          - qdrant
-          - ollama
+        ports: ["8000:8000"]
+        depends_on: [loki, qdrant, ollama]
 
     volumes:
       prometheus-data:
@@ -1414,1437 +1417,147 @@ resource "aws_s3_object" "aiops_bootstrap" {
     cd /opt/aiops
     docker compose up -d --build
 
-    # Wait for Ollama, then pull local LLM + embedding models.
     for i in $(seq 1 90); do
-      if curl -sf http://127.0.0.1:11434/api/tags >/dev/null; then
-        break
-      fi
+      curl -sf http://127.0.0.1:11434/api/tags >/dev/null && break
       sleep 5
     done
-
     docker exec ollama ollama pull ${var.ollama_model} || true
     docker exec ollama ollama pull ${var.ollama_embedding_model} || true
 
     cat > /usr/local/bin/aiops-status <<'STATUSEOF'
     #!/usr/bin/env bash
-    set -e
     cd /opt/aiops
     docker compose ps
-    echo
-    echo "FastAPI health:";    curl -sf http://localhost:8000/health || true; echo
-    echo "Prometheus health:"; curl -sf http://localhost:9090/-/healthy || true; echo
-    echo "Loki health:";       curl -sf http://localhost:3100/ready || true; echo
+    echo; echo "FastAPI:";    curl -s http://localhost:8000/health; echo
+    echo "Prometheus:";       curl -s http://localhost:9090/-/healthy; echo
+    echo "Loki:";             curl -s http://localhost:3100/ready; echo
+    echo "Ollama models:";    curl -s http://localhost:11434/api/tags | jq -r '.models[].name'
     STATUSEOF
     chmod +x /usr/local/bin/aiops-status
 
     echo "AIOPS BOOTSTRAP COMPLETE" | tee /dev/console
   BOOTSTRAP
-
-  content_type           = "text/x-shellscript"
-  server_side_encryption = "AES256"
 }
 
-resource "aws_instance" "aiops" {
-  count = var.enable_oss_aiops_vm ? 1 : 0
-
+resource "aws_instance" "monitoring" {
   ami                         = data.aws_ssm_parameter.ubuntu_ami.value
-  instance_type               = var.aiops_instance_type
+  instance_type               = var.monitoring_instance_type
   subnet_id                   = aws_subnet.public[0].id
-  vpc_security_group_ids      = [aws_security_group.aiops.id]
+  vpc_security_group_ids      = [aws_security_group.this["monitoring"].id]
   iam_instance_profile        = aws_iam_instance_profile.ec2.name
-  key_name                    = aws_key_pair.admin_ssh.key_name
+  key_name                    = aws_key_pair.admin.key_name
   associate_public_ip_address = true
 
   metadata_options {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
-    http_put_response_hop_limit = 2 # containers (Prometheus EC2 SD) need 2 hops
+    http_put_response_hop_limit = 2 # Prometheus EC2 discovery runs in a container
   }
 
   root_block_device {
-    volume_type           = "gp3"
-    volume_size           = var.aiops_root_gb
-    encrypted             = true
-    delete_on_termination = true
+    volume_type = "gp3"
+    volume_size = var.monitoring_root_gb
+    encrypted   = true
   }
 
-  # Management access first, so the VM stays reachable even if the big
-  # bootstrap fails. The heavy installer runs in the background so cloud-init
-  # finishes quickly; follow it with: sudo tail -f /var/log/aiops-bootstrap.log
+  # Keep user_data small and make SSH/SSM work first. The big installer runs in
+  # the background; follow it with: sudo tail -f /var/log/aiops-bootstrap.log
   user_data_replace_on_change = true
   user_data                   = <<-USERDATA
     #!/usr/bin/env bash
     set -euxo pipefail
     export DEBIAN_FRONTEND=noninteractive
+    hostnamectl set-hostname "${local.name_prefix}-monitoring"
 
     apt-get update
-    apt-get install -y curl unzip ca-certificates openssh-server ec2-instance-connect jq
-
-    systemctl enable --now ssh
-
-    if ! snap list amazon-ssm-agent >/dev/null 2>&1; then
-      snap install amazon-ssm-agent --classic || true
-    fi
+    apt-get install -y curl unzip jq
     systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service || true
 
-    # AWS CLI v2 (instance role supplies credentials)
-    curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
-    rm -rf /tmp/awscliv2
-    unzip -q /tmp/awscliv2.zip -d /tmp/awscliv2
+    curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscliv2.zip
+    unzip -q -o /tmp/awscliv2.zip -d /tmp/awscliv2
     /tmp/awscliv2/aws/install --update
 
-    # CloudWatch Agent (metrics + logs)
-    ${indent(4, local.cw_agent_install)}
-
-    aws s3 cp \
-      "s3://${var.bootstrap_bucket_name}/${var.bootstrap_prefix}/${local.name_prefix}/install-aiops.sh" \
-      /usr/local/sbin/install-aiops.sh --region "${var.aws_region}"
-    chmod 700 /usr/local/sbin/install-aiops.sh
-    nohup /usr/local/sbin/install-aiops.sh > /var/log/aiops-bootstrap.log 2>&1 &
+    /usr/local/bin/aws s3 cp "s3://${var.bootstrap_bucket_name}/${local.bootstrap_key}" \
+      /usr/local/sbin/install-monitoring.sh --region "${var.aws_region}"
+    chmod 700 /usr/local/sbin/install-monitoring.sh
+    nohup /usr/local/sbin/install-monitoring.sh > /var/log/aiops-bootstrap.log 2>&1 &
   USERDATA
 
   tags = {
-    Name = "${local.name_prefix}-aiops"
-    Role = "AIOpsPlatform"
+    Name = "${local.name_prefix}-monitoring"
+    Role = "AIOpsMonitoring"
   }
 
   depends_on = [
     aws_route_table_association.public,
-    aws_iam_role_policy.ec2_inline,
-    aws_iam_role_policy_attachment.ec2_managed,
-    aws_s3_object.aiops_bootstrap,
-    aws_ssm_parameter.cw_agent_config,
+    aws_iam_role_policy.ec2,
+    aws_iam_role_policy_attachment.ssm,
+    aws_s3_object.monitoring_bootstrap,
   ]
 }
 
-resource "aws_route53_record" "aiops" {
-  count = var.enable_oss_aiops_vm ? 1 : 0
-
+resource "aws_route53_record" "monitoring" {
   zone_id = aws_route53_zone.private.zone_id
-  name    = local.aiops_dns
+  name    = local.monitoring_dns
   type    = "A"
   ttl     = 30
-  records = [aws_instance.aiops[0].private_ip]
-}
-
-################################################################################
-# MONITORED APPLICATION VMs
-# Demo app + node_exporter + Alloy->Loki (OSS path) + CloudWatch Agent (AWS path)
-################################################################################
-
-resource "aws_instance" "target" {
-  count = var.target_vm_count
-
-  ami                         = data.aws_ssm_parameter.ubuntu_ami.value
-  instance_type               = var.target_instance_type
-  subnet_id                   = aws_subnet.public[count.index % length(aws_subnet.public)].id
-  vpc_security_group_ids      = [aws_security_group.target.id]
-  iam_instance_profile        = aws_iam_instance_profile.ec2.name
-  key_name                    = aws_key_pair.admin_ssh.key_name
-  associate_public_ip_address = true
-
-  metadata_options {
-    http_endpoint               = "enabled"
-    http_tokens                 = "required"
-    http_put_response_hop_limit = 2
-  }
-
-  root_block_device {
-    volume_type           = "gp3"
-    volume_size           = var.target_root_gb
-    encrypted             = true
-    delete_on_termination = true
-  }
-
-  user_data_replace_on_change = true
-  user_data                   = <<-USERDATA
-    #!/usr/bin/env bash
-    set -euxo pipefail
-    export DEBIAN_FRONTEND=noninteractive
-    TARGET_NAME="${format("%s-app-%02d", local.name_prefix, count.index + 1)}"
-
-    apt-get update
-    apt-get install -y docker.io curl jq python3
-    systemctl enable --now docker
-    systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service || true
-    hostnamectl set-hostname "$TARGET_NAME"
-
-    install -d -m 700 -o ubuntu -g ubuntu /home/ubuntu/.ssh
-    cat >> /home/ubuntu/.ssh/authorized_keys <<'PUBKEY'
-    ${trimspace(tls_private_key.ansible.public_key_openssh)}
-    PUBKEY
-    chown ubuntu:ubuntu /home/ubuntu/.ssh/authorized_keys
-    chmod 600 /home/ubuntu/.ssh/authorized_keys
-
-    mkdir -p /opt/aiops-target /var/log/aiops-demo /opt/alloy
-
-    # ---------------------------------------------------------- demo app
-    cat > /opt/aiops-target/app.py <<'PYEOF'
-    from http.server import HTTPServer, BaseHTTPRequestHandler
-    import logging
-
-    logging.basicConfig(
-        filename="/var/log/aiops-demo/app.log",
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-    )
-
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            logging.info("request path=%s", self.path)
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"AIOps Demo OK\n")
-
-    HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
-    PYEOF
-
-    cat > /etc/systemd/system/aiops-demo.service <<'SVCEOF'
-    [Unit]
-    Description=AIOps Demo Application
-    After=network-online.target
-    Wants=network-online.target
-
-    [Service]
-    ExecStart=/usr/bin/python3 /opt/aiops-target/app.py
-    Restart=always
-    RestartSec=3
-
-    [Install]
-    WantedBy=multi-user.target
-    SVCEOF
-
-    systemctl daemon-reload
-    systemctl enable --now aiops-demo
-
-    # ---------------------------------------------------------- node_exporter
-    docker run -d --name node-exporter --restart unless-stopped \
-      --network host --pid host -v "/:/host:ro,rslave" \
-      quay.io/prometheus/node-exporter:latest --path.rootfs=/host
-
-    # ---------------------------------------------------------- Alloy -> Loki
-    cat > /opt/alloy/config.alloy <<EOF
-    local.file_match "vm_logs" {
-      path_targets = [
-        { "__path__" = "/var/log/syslog", "job" = "system", "host" = "$TARGET_NAME" },
-        { "__path__" = "/var/log/auth.log", "job" = "auth", "host" = "$TARGET_NAME" },
-        { "__path__" = "/var/log/aiops-demo/*.log", "job" = "application", "host" = "$TARGET_NAME" }
-      ]
-    }
-
-    loki.source.file "files" {
-      targets    = local.file_match.vm_logs.targets
-      forward_to = [loki.write.aiops.receiver]
-    }
-
-    loki.write "aiops" {
-      endpoint {
-        url = "http://${local.aiops_dns}:3100/loki/api/v1/push"
-      }
-    }
-    EOF
-
-    docker run -d --name alloy --restart unless-stopped --network host \
-      -v /opt/alloy/config.alloy:/etc/alloy/config.alloy:ro \
-      -v /var/log:/var/log:ro \
-      grafana/alloy:latest run /etc/alloy/config.alloy
-
-    # ---------------------------------------------------------- CloudWatch Agent
-    ${indent(4, local.cw_agent_install)}
-
-    echo "INFO AIOps target bootstrap completed" >> /var/log/aiops-demo/app.log
-  USERDATA
-
-  tags = {
-    Name = format("%s-app-%02d", local.name_prefix, count.index + 1)
-    Role = "AIOpsTarget"
-  }
-
-  depends_on = [
-    aws_route_table_association.public,
-    aws_route53_record.aiops,
-    aws_ssm_parameter.cw_agent_config,
-    aws_iam_role_policy_attachment.ec2_managed,
-  ]
-}
-
-################################################################################
-# DATABASES - RDS PostgreSQL with Performance Insights + Enhanced Monitoring
-# (PDF 6.4). For EXISTING databases run the aws rds modify-db-instance command
-# from the PDF using the monitoring role ARN from `terraform output`.
-################################################################################
-
-resource "aws_iam_role" "rds_monitoring" {
-  name = "${local.name_prefix}-rds-monitoring-role"
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Action    = "sts:AssumeRole"
-      Principal = { Service = "monitoring.rds.amazonaws.com" }
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "rds_monitoring" {
-  role       = aws_iam_role.rds_monitoring.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole"
-}
-
-resource "aws_security_group" "rds" {
-  count = var.enable_rds ? 1 : 0
-
-  name        = "${local.name_prefix}-rds-sg"
-  description = "PostgreSQL from AIOps VM and target VMs"
-  vpc_id      = aws_vpc.this.id
-}
-
-resource "aws_vpc_security_group_ingress_rule" "rds_from_vms" {
-  for_each = { for k, v in {
-    aiops  = aws_security_group.aiops.id
-    target = aws_security_group.target.id
-  } : k => v if var.enable_rds }
-
-  security_group_id            = aws_security_group.rds[0].id
-  referenced_security_group_id = each.value
-  from_port                    = 5432
-  to_port                      = 5432
-  ip_protocol                  = "tcp"
-}
-
-resource "aws_db_subnet_group" "rds" {
-  count = var.enable_rds ? 1 : 0
-
-  name       = "${local.name_prefix}-rds-subnets"
-  subnet_ids = aws_subnet.public[*].id
-}
-
-resource "aws_db_instance" "demo" {
-  count = var.enable_rds ? 1 : 0
-
-  identifier                  = "${local.name_prefix}-pg"
-  engine                      = "postgres"
-  engine_version              = var.rds_engine_version
-  instance_class              = var.rds_instance_class
-  allocated_storage           = 20
-  storage_type                = "gp3"
-  storage_encrypted           = true
-  db_name                     = "aiops"
-  username                    = "aiopsadmin"
-  manage_master_user_password = true # password lives in Secrets Manager
-  db_subnet_group_name        = aws_db_subnet_group.rds[0].name
-  vpc_security_group_ids      = [aws_security_group.rds[0].id]
-  publicly_accessible         = false
-
-  performance_insights_enabled          = true
-  performance_insights_retention_period = 7
-  monitoring_interval                   = 60
-  monitoring_role_arn                   = aws_iam_role.rds_monitoring.arn
-  enabled_cloudwatch_logs_exports       = ["postgresql"]
-
-  backup_retention_period = 1
-  skip_final_snapshot     = true
-  deletion_protection     = false
-  apply_immediately       = true
-
-  depends_on = [aws_iam_role_policy_attachment.rds_monitoring]
-}
-
-################################################################################
-# DETECTION - CloudWatch alarms (trigger the RAG Lambda via EventBridge)
-# Alarm names MUST start with "<name_prefix>-" to be routed to the pipeline.
-################################################################################
-
-resource "aws_cloudwatch_metric_alarm" "target_cpu" {
-  count = var.target_vm_count
-
-  alarm_name          = "${local.name_prefix}-app-${format("%02d", count.index + 1)}-high-cpu"
-  alarm_description   = "CPU above 85% for 3 minutes"
-  namespace           = "AWS/EC2"
-  metric_name         = "CPUUtilization"
-  statistic           = "Average"
-  period              = 60
-  evaluation_periods  = 3
-  threshold           = 85
-  comparison_operator = "GreaterThanThreshold"
-  dimensions          = { InstanceId = aws_instance.target[count.index].id }
-}
-
-resource "aws_cloudwatch_metric_alarm" "target_memory" {
-  count = var.target_vm_count
-
-  alarm_name          = "${local.name_prefix}-app-${format("%02d", count.index + 1)}-high-memory"
-  alarm_description   = "Memory above 90% for 3 minutes (CloudWatch Agent)"
-  namespace           = "CWAgent"
-  metric_name         = "mem_used_percent"
-  statistic           = "Average"
-  period              = 60
-  evaluation_periods  = 3
-  threshold           = 90
-  comparison_operator = "GreaterThanThreshold"
-  treat_missing_data  = "notBreaching"
-  dimensions          = { InstanceId = aws_instance.target[count.index].id }
-}
-
-resource "aws_cloudwatch_metric_alarm" "target_status" {
-  count = var.target_vm_count
-
-  alarm_name          = "${local.name_prefix}-app-${format("%02d", count.index + 1)}-status-check"
-  alarm_description   = "EC2 status check failing"
-  namespace           = "AWS/EC2"
-  metric_name         = "StatusCheckFailed"
-  statistic           = "Maximum"
-  period              = 60
-  evaluation_periods  = 2
-  threshold           = 0
-  comparison_operator = "GreaterThanThreshold"
-  dimensions          = { InstanceId = aws_instance.target[count.index].id }
-}
-
-resource "aws_cloudwatch_metric_alarm" "rds_cpu" {
-  count = var.enable_rds ? 1 : 0
-
-  alarm_name          = "${local.name_prefix}-rds-high-cpu"
-  alarm_description   = "RDS CPU above 80% for 5 minutes"
-  namespace           = "AWS/RDS"
-  metric_name         = "CPUUtilization"
-  statistic           = "Average"
-  period              = 60
-  evaluation_periods  = 5
-  threshold           = 80
-  comparison_operator = "GreaterThanThreshold"
-  dimensions          = { DBInstanceIdentifier = aws_db_instance.demo[0].identifier }
-}
-
-resource "aws_cloudwatch_metric_alarm" "rds_storage" {
-  count = var.enable_rds ? 1 : 0
-
-  alarm_name          = "${local.name_prefix}-rds-low-storage"
-  alarm_description   = "RDS free storage below 2 GiB"
-  namespace           = "AWS/RDS"
-  metric_name         = "FreeStorageSpace"
-  statistic           = "Minimum"
-  period              = 300
-  evaluation_periods  = 1
-  threshold           = 2147483648
-  comparison_operator = "LessThanThreshold"
-  dimensions          = { DBInstanceIdentifier = aws_db_instance.demo[0].identifier }
-}
-
-################################################################################
-# DETECTION - Amazon DevOps Guru (PDF 6.5), scoped by tag
-################################################################################
-
-resource "aws_devopsguru_resource_collection" "aiops" {
-  count = var.enable_devops_guru ? 1 : 0
-
-  type = "AWS_TAGS"
-  tags {
-    app_boundary_key = local.devops_guru_tag_key
-    tag_values       = [local.name_prefix]
-  }
-}
-
-################################################################################
-# RAG VECTOR STORE - OpenSearch with k-NN (PDF 6.6)
-# Public HTTPS endpoint protected by an IAM resource policy (only the RAG
-# Lambda role can call it), so the Lambda needs no VPC/NAT.
-################################################################################
-
-resource "aws_opensearch_domain" "vectors" {
-  count = var.enable_opensearch ? 1 : 0
-
-  domain_name    = "${local.name_prefix}-vectors"
-  engine_version = var.opensearch_engine_version
-
-  cluster_config {
-    instance_type          = var.opensearch_instance_type
-    instance_count         = var.opensearch_instance_count
-    zone_awareness_enabled = var.opensearch_instance_count > 1
-
-    dynamic "zone_awareness_config" {
-      for_each = var.opensearch_instance_count > 1 ? [1] : []
-      content {
-        availability_zone_count = 2
-      }
-    }
-  }
-
-  ebs_options {
-    ebs_enabled = true
-    volume_type = "gp3"
-    volume_size = var.opensearch_volume_gb
-  }
-
-  encrypt_at_rest {
-    enabled = true
-  }
-
-  node_to_node_encryption {
-    enabled = true
-  }
-
-  domain_endpoint_options {
-    enforce_https       = true
-    tls_security_policy = "Policy-Min-TLS-1-2-2019-07"
-  }
-
-  access_policies = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { AWS = aws_iam_role.rag_lambda.arn }
-      Action    = ["es:ESHttpGet", "es:ESHttpHead", "es:ESHttpPost", "es:ESHttpPut", "es:ESHttpDelete"]
-      Resource  = "arn:aws:es:${var.aws_region}:${local.account_id}:domain/${local.name_prefix}-vectors/*"
-    }]
-  })
-
-  depends_on = [aws_iam_role_policy.rag_lambda]
-}
-
-################################################################################
-# RAG PIPELINE LAMBDA (PDF 3 + 6.7) + dedupe table (PDF 4)
-################################################################################
-
-resource "aws_dynamodb_table" "dedupe" {
-  name         = "${local.name_prefix}-anomaly-dedupe"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "pk"
-
-  attribute {
-    name = "pk"
-    type = "S"
-  }
-
-  ttl {
-    attribute_name = "expires_at"
-    enabled        = true
-  }
-}
-
-resource "aws_iam_role" "rag_lambda" {
-  name = "${local.name_prefix}-rag-lambda-role"
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Action    = "sts:AssumeRole"
-      Principal = { Service = "lambda.amazonaws.com" }
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "rag_lambda_basic" {
-  role       = aws_iam_role.rag_lambda.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-}
-
-resource "aws_iam_role_policy_attachment" "rag_lambda_bedrock" {
-  role       = aws_iam_role.rag_lambda.name
-  policy_arn = aws_iam_policy.bedrock_invoke.arn
-}
-
-resource "aws_iam_role_policy" "rag_lambda" {
-  name = "${local.name_prefix}-rag-lambda"
-  role = aws_iam_role.rag_lambda.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid      = "Dedupe"
-        Effect   = "Allow"
-        Action   = ["dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:GetItem"]
-        Resource = aws_dynamodb_table.dedupe.arn
-      },
-      {
-        Sid      = "OpenSearch"
-        Effect   = "Allow"
-        Action   = ["es:ESHttpGet", "es:ESHttpHead", "es:ESHttpPost", "es:ESHttpPut", "es:ESHttpDelete"]
-        Resource = "arn:aws:es:${var.aws_region}:${local.account_id}:domain/${local.name_prefix}-vectors/*"
-      },
-      {
-        Sid      = "ServiceNowSecret"
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
-        Resource = aws_secretsmanager_secret.servicenow.arn
-      },
-      {
-        Sid      = "ReadVmLogs"
-        Effect   = "Allow"
-        Action   = ["logs:FilterLogEvents"]
-        Resource = "${aws_cloudwatch_log_group.vms.arn}:*"
-      },
-      {
-        Sid      = "DescribeEks"
-        Effect   = "Allow"
-        Action   = ["eks:DescribeCluster"]
-        Resource = "arn:aws:eks:${var.aws_region}:${local.account_id}:cluster/*"
-      }
-    ]
-  })
-}
-
-locals {
-  rag_handler_py = <<-PYEOF
-    """AIOps RAG pipeline (PDF sections 3 / 6.7).
-
-    Triggers:
-      * EventBridge: DevOps Guru "New Insight Open"
-      * EventBridge: CloudWatch alarm -> ALARM (alarms named <prefix>-*)
-      * EventBridge schedule: poll k8sgpt Result CRs on EKS
-      * Manual invoke: {"action": "test"} | {"action": "add_incident", "incident": {...}}
-                       | {"action": "poll_k8sgpt"}
-
-    Flow: dedupe -> embed (Titan v2) -> k-NN search past incidents (OpenSearch)
-          -> LLM RCA (Bedrock Converse) -> ServiceNow incident (secret in Secrets Manager).
-    No third-party dependencies: only boto3/botocore from the Lambda runtime.
-    """
-    import base64
-    import hashlib
-    import json
-    import os
-    import ssl
-    import time
-    import urllib.error
-    import urllib.parse
-    import urllib.request
-
-    import boto3
-    from botocore.auth import SigV4Auth
-    from botocore.awsrequest import AWSRequest
-    from botocore.signers import RequestSigner
-
-    REGION = os.environ.get("AWS_REGION", "us-east-1")
-    OS_ENDPOINT = os.environ.get("OPENSEARCH_ENDPOINT", "")
-    OS_INDEX = os.environ.get("OPENSEARCH_INDEX", "incidents")
-    EMBED_MODEL = os.environ.get("EMBED_MODEL_ID", "amazon.titan-embed-text-v2:0")
-    EMBED_DIM = int(os.environ.get("EMBED_DIMENSIONS", "1024"))
-    LLM_MODEL = os.environ.get("LLM_MODEL_ID", "")
-    SECRET_ID = os.environ.get("SERVICENOW_SECRET_ID", "")
-    DEDUPE_TABLE = os.environ.get("DEDUPE_TABLE", "")
-    DEDUPE_TTL = int(os.environ.get("DEDUPE_TTL_SECONDS", "3600"))
-    VM_LOG_GROUP = os.environ.get("VM_LOG_GROUP", "")
-    EKS_CLUSTER = os.environ.get("EKS_CLUSTER_NAME", "")
-    K8SGPT_NS = os.environ.get("K8SGPT_NAMESPACE", "k8sgpt")
-    MAX_PER_RUN = int(os.environ.get("MAX_ANOMALIES_PER_RUN", "10"))
-
-    session = boto3.session.Session()
-    bedrock = session.client("bedrock-runtime", region_name=REGION)
-    ddb = session.client("dynamodb", region_name=REGION)
-    logs = session.client("logs", region_name=REGION)
-    secrets = session.client("secretsmanager", region_name=REGION)
-    eks = session.client("eks", region_name=REGION)
-
-    PROMPT = """You are an SRE assistant. A new anomaly was detected:
-    {anomaly}
-
-    Here are the {count} most similar past incidents and how they were resolved:
-    {history}
-
-    Based on this, respond with ONLY one JSON object (no prose) with these keys:
-      "root_cause": likely root cause (string)
-      "confidence": "low" | "medium" | "high"
-      "remediation_steps": list of specific steps, exact commands where applicable
-      "safe_to_auto_remediate": true or false
-      "reasoning_summary": short explanation (string)
-    Never mark destructive, security, data-loss or unknown conditions as safe to auto-remediate."""
-
-
-    # --------------------------------------------------------------------------- #
-    # HTTP helpers
-    # --------------------------------------------------------------------------- #
-    def http_json(url, method="GET", body=None, headers=None, data=None, timeout=30, context=None):
-        if body is not None:
-            data = json.dumps(body).encode()
-        req = urllib.request.Request(url, data=data, method=method, headers=headers or {})
-        with urllib.request.urlopen(req, timeout=timeout, context=context) as resp:
-            raw = resp.read()
-        return json.loads(raw) if raw else {}
-
-
-    def os_request(method, path, body=None):
-        """SigV4-signed request to the OpenSearch domain. Returns None on 404."""
-        url = f"https://{OS_ENDPOINT}{path}"
-        data = json.dumps(body).encode() if body is not None else None
-        aws_req = AWSRequest(method=method, url=url, data=data, headers={"Content-Type": "application/json"})
-        SigV4Auth(session.get_credentials(), "es", REGION).add_auth(aws_req)
-        req = urllib.request.Request(url, data=data, method=method, headers=dict(aws_req.headers.items()))
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                raw = resp.read()
-            return json.loads(raw) if raw else {}
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:
-                return None
-            raise RuntimeError(f"OpenSearch {method} {path} -> {exc.code}: {exc.read()[:500]!r}")
-
-
-    # --------------------------------------------------------------------------- #
-    # Vector store (OpenSearch k-NN)
-    # --------------------------------------------------------------------------- #
-    _index_ready = False
-
-
-    def ensure_index():
-        global _index_ready
-        if _index_ready or not OS_ENDPOINT:
-            return
-        if os_request("HEAD", f"/{OS_INDEX}") is None:
-            mapping = {
-                "settings": {"index": {"knn": True}},
-                "mappings": {
-                    "properties": {
-                        "embedding": {
-                            "type": "knn_vector",
-                            "dimension": EMBED_DIM,
-                            "method": {"name": "hnsw", "engine": "lucene", "space_type": "cosinesimil"},
-                        },
-                        "text": {"type": "text"},
-                        "title": {"type": "text"},
-                        "root_cause": {"type": "text"},
-                        "resolution": {"type": "text"},
-                        "created_at": {"type": "date"},
-                    }
-                },
-            }
-            try:
-                os_request("PUT", f"/{OS_INDEX}", mapping)
-            except RuntimeError as exc:
-                if "resource_already_exists" not in str(exc):
-                    raise
-        _index_ready = True
-
-
-    def embed(text):
-        resp = bedrock.invoke_model(
-            modelId=EMBED_MODEL,
-            contentType="application/json",
-            accept="application/json",
-            body=json.dumps({"inputText": text[:30000], "dimensions": EMBED_DIM, "normalize": True}),
-        )
-        return json.loads(resp["body"].read())["embedding"]
-
-
-    def similar_incidents(vector, k=3):
-        if not OS_ENDPOINT:
-            return []
-        ensure_index()
-        res = os_request(
-            "POST",
-            f"/{OS_INDEX}/_search",
-            {"size": k, "_source": {"excludes": ["embedding"]}, "query": {"knn": {"embedding": {"vector": vector, "k": k}}}},
-        )
-        hits = (res or {}).get("hits", {}).get("hits", [])
-        return [dict(h.get("_source", {}), score=h.get("_score")) for h in hits]
-
-
-    def store_incident(incident):
-        """Feed a resolved incident back into the RAG store (PDF section 5)."""
-        if not OS_ENDPOINT:
-            return {"stored": False, "reason": "OpenSearch disabled"}
-        text = "\n".join(
-            f"{key}: {incident.get(key, '')}"
-            for key in ("title", "symptoms", "logs", "root_cause", "resolution")
-            if incident.get(key)
-        ) or json.dumps(incident)
-        doc = dict(incident)
-        doc.update({"text": text, "embedding": embed(text), "created_at": int(time.time() * 1000)})
-        ensure_index()
-        res = os_request("POST", f"/{OS_INDEX}/_doc?refresh=true", doc)
-        return {"stored": True, "id": (res or {}).get("_id")}
-
-
-    # --------------------------------------------------------------------------- #
-    # LLM reasoning (Bedrock Converse API - works for any Bedrock chat model)
-    # --------------------------------------------------------------------------- #
-    def analyse(anomaly_text, history):
-        prompt = PROMPT.format(
-            anomaly=anomaly_text[:20000],
-            count=len(history),
-            history=json.dumps(history, indent=2, default=str)[:12000] or "none",
-        )
-        resp = bedrock.converse(
-            modelId=LLM_MODEL,
-            messages=[{"role": "user", "content": [{"text": prompt}]}],
-            inferenceConfig={"maxTokens": 1500, "temperature": 0.2},
-        )
-        text = resp["output"]["message"]["content"][0]["text"]
-        start, end = text.find("{"), text.rfind("}")
-        try:
-            return json.loads(text[start : end + 1])
-        except Exception:
-            return {"root_cause": "LLM response was not valid JSON", "confidence": "low",
-                    "safe_to_auto_remediate": False, "raw": text[:4000]}
-
-
-    # --------------------------------------------------------------------------- #
-    # ServiceNow (credentials pulled from Secrets Manager at runtime - PDF 6.8)
-    # --------------------------------------------------------------------------- #
-    _sn_cfg = None
-
-
-    def sn_config():
-        global _sn_cfg
-        if _sn_cfg is None:
-            try:
-                _sn_cfg = json.loads(secrets.get_secret_value(SecretId=SECRET_ID)["SecretString"])
-            except Exception as exc:
-                print(f"ServiceNow secret unavailable: {exc}")
-                _sn_cfg = {}
-        return _sn_cfg
-
-
-    def create_ticket(short_description, description, urgency="2"):
-        cfg = sn_config()
-        base = (cfg.get("instance_url") or "").rstrip("/")
-        if not base:
-            return {"skipped": True, "reason": "ServiceNow not configured (instance_url empty in secret)"}
-
-        headers = {"Content-Type": "application/json", "Accept": "application/json"}
-        if cfg.get("client_id") and cfg.get("client_secret"):
-            form = {"client_id": cfg["client_id"], "client_secret": cfg["client_secret"]}
-            if cfg.get("username"):
-                form.update(grant_type="password", username=cfg["username"], password=cfg.get("password", ""))
-            else:
-                form.update(grant_type="client_credentials")
-            token = http_json(
-                f"{base}/oauth_token.do",
-                method="POST",
-                data=urllib.parse.urlencode(form).encode(),
-                headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
-            )
-            headers["Authorization"] = "Bearer " + token["access_token"]
-        elif cfg.get("username"):
-            basic = base64.b64encode(f"{cfg['username']}:{cfg.get('password', '')}".encode()).decode()
-            headers["Authorization"] = "Basic " + basic
-        else:
-            return {"skipped": True, "reason": "No ServiceNow credentials in secret"}
-
-        res = http_json(
-            f"{base}/api/now/table/incident",
-            method="POST",
-            headers=headers,
-            body={
-                "short_description": short_description[:160],
-                "description": description[:30000],
-                "urgency": urgency,
-                "impact": "2",
-                "category": "software",
-            },
-        )
-        result = res.get("result", {})
-        return {"number": result.get("number"), "sys_id": result.get("sys_id")}
-
-
-    # --------------------------------------------------------------------------- #
-    # Dedupe / correlation (PDF section 4: don't re-run RAG 50x for one alert)
-    # --------------------------------------------------------------------------- #
-    def first_time(key, ttl):
-        if not DEDUPE_TABLE:
-            return True
-        now = int(time.time())
-        try:
-            ddb.put_item(
-                TableName=DEDUPE_TABLE,
-                Item={"pk": {"S": key}, "expires_at": {"N": str(now + ttl)}},
-                ConditionExpression="attribute_not_exists(pk) OR expires_at < :now",
-                ExpressionAttributeValues={":now": {"N": str(now)}},
-            )
-            return True
-        except ddb.exceptions.ConditionalCheckFailedException:
-            return False
-
-
-    def forget(key):
-        if DEDUPE_TABLE:
-            try:
-                ddb.delete_item(TableName=DEDUPE_TABLE, Key={"pk": {"S": key}})
-            except Exception:
-                pass
-
-
-    # --------------------------------------------------------------------------- #
-    # Event sources
-    # --------------------------------------------------------------------------- #
-    def recent_vm_logs(instance_id, minutes=15, limit=100):
-        if not (VM_LOG_GROUP and instance_id):
-            return ""
-        try:
-            res = logs.filter_log_events(
-                logGroupName=VM_LOG_GROUP,
-                logStreamNamePrefix=instance_id,
-                startTime=int((time.time() - minutes * 60) * 1000),
-                limit=limit,
-            )
-            return "\n".join(e["message"] for e in res.get("events", []))[-8000:]
-        except Exception as exc:
-            return f"(log lookup failed: {exc})"
-
-
-    def from_cloudwatch_alarm(event):
-        detail = event.get("detail", {})
-        if detail.get("state", {}).get("value") != "ALARM":
-            return None
-        instance_id = ""
-        for metric in detail.get("configuration", {}).get("metrics", []):
-            dims = metric.get("metricStat", {}).get("metric", {}).get("dimensions", {})
-            instance_id = instance_id or dims.get("InstanceId", "")
-        name = detail.get("alarmName", "unknown-alarm")
-        started = detail.get("state", {}).get("timestamp", "")
-        return {
-            "key": f"cw-{name}-{started}",
-            "title": f"CloudWatch alarm {name}",
-            "instance_id": instance_id,
-            "urgency": "2",
-            "details": json.dumps(
-                {"source": "CloudWatch alarm", "alarm": name, "reason": detail.get("state", {}).get("reason"),
-                 "configuration": detail.get("configuration"), "resources": event.get("resources")},
-                indent=2, default=str),
-        }
-
-
-    def from_devops_guru(event):
-        detail = event.get("detail", {})
-        insight = detail.get("insightId", event.get("id"))
-        severity = str(detail.get("insightSeverity", "medium")).lower()
-        return {
-            "key": f"guru-{insight}",
-            "title": f"DevOps Guru {severity} insight {detail.get('insightDescription', insight)}",
-            "urgency": "1" if severity == "high" else "2",
-            "details": json.dumps({"source": "Amazon DevOps Guru", "detail": detail}, indent=2, default=str)[:20000],
-        }
-
-
-    def eks_token(cluster):
-        sts = session.client("sts", region_name=REGION)
-        signer = RequestSigner(sts.meta.service_model.service_id, REGION, "sts", "v4",
-                               session.get_credentials(), session.events)
-        url = signer.generate_presigned_url(
-            {
-                "method": "GET",
-                "url": f"https://sts.{REGION}.amazonaws.com/?Action=GetCallerIdentity&Version=2011-06-15",
-                "body": {},
-                "headers": {"x-k8s-aws-id": cluster},
-                "context": {},
-            },
-            region_name=REGION,
-            expires_in=60,
-            operation_name="",
-        )
-        return "k8s-aws-v1." + base64.urlsafe_b64encode(url.encode()).decode().rstrip("=")
-
-
-    def from_k8sgpt():
-        if not EKS_CLUSTER:
-            return []
-        cluster = eks.describe_cluster(name=EKS_CLUSTER)["cluster"]
-        ctx = ssl.create_default_context(cadata=base64.b64decode(cluster["certificateAuthority"]["data"]).decode())
-        data = http_json(
-            f"{cluster['endpoint']}/apis/core.k8sgpt.ai/v1alpha1/namespaces/{K8SGPT_NS}/results",
-            headers={"Authorization": "Bearer " + eks_token(EKS_CLUSTER), "Accept": "application/json"},
-            context=ctx,
-        )
-        found = []
-        for item in data.get("items", []):
-            spec = item.get("spec", {})
-            errors = [e.get("text", "") for e in (spec.get("error") or [])]
-            digest = hashlib.sha256(json.dumps([spec.get("kind"), spec.get("name"), errors]).encode()).hexdigest()[:24]
-            details = (
-                f"EKS cluster {EKS_CLUSTER} - k8sgpt finding\n"
-                f"Kind: {spec.get('kind')}\nObject: {spec.get('name')}\nParent: {spec.get('parentObject')}\n"
-                "Errors:\n- " + "\n- ".join(errors) + f"\n\nk8sgpt explanation:\n{spec.get('details', '')}"
-            )
-            found.append({"key": f"k8sgpt-{digest}", "title": f"EKS {spec.get('kind')} {spec.get('name')}",
-                          "details": details, "urgency": "2", "ttl": 86400})
-        return found
-
-
-    # --------------------------------------------------------------------------- #
-    # Pipeline
-    # --------------------------------------------------------------------------- #
-    def process(anomaly):
-        key = anomaly["key"]
-        if not first_time(key, anomaly.get("ttl", DEDUPE_TTL)):
-            return {"key": key, "skipped": "duplicate within dedupe window"}
-        try:
-            text = anomaly["details"]
-            if anomaly.get("instance_id"):
-                text += "\n\nRecent VM logs (CloudWatch Logs):\n" + recent_vm_logs(anomaly["instance_id"])
-            vector = embed(text)
-            history = similar_incidents(vector)
-            analysis = analyse(text, history)
-            description = json.dumps(
-                {"anomaly": text[:20000], "llm_analysis": analysis, "similar_past_incidents": history},
-                indent=2, default=str)
-            ticket = create_ticket(f"AIOps: {anomaly['title']}", description, anomaly.get("urgency", "2"))
-            result = {"key": key, "title": anomaly["title"], "analysis": analysis, "ticket": ticket,
-                      "similar_count": len(history)}
-            print(json.dumps(result, default=str))
-            return result
-        except Exception as exc:
-            forget(key)  # allow a retry on the next event
-            print(f"ERROR processing {key}: {exc}")
-            return {"key": key, "error": str(exc)}
-
-
-    def handler(event, context):
-        event = event or {}
-        action = event.get("action")
-        source = event.get("source")
-
-        if action == "add_incident":
-            return store_incident(event.get("incident", {}))
-
-        if action == "test":
-            anomalies = [{
-                "key": f"test-{int(time.time())}",
-                "title": "AIOps pipeline test",
-                "urgency": "3",
-                "details": event.get("details", "Synthetic test anomaly: demo app on port 8080 returns HTTP 500 "
-                                                "after a deploy; systemd shows aiops-demo restarting repeatedly."),
-            }]
-        elif source == "aws.cloudwatch":
-            anomalies = [from_cloudwatch_alarm(event)]
-        elif source == "aws.devops-guru":
-            anomalies = [from_devops_guru(event)]
-        elif source == "aws.events" or action == "poll_k8sgpt":
-            anomalies = from_k8sgpt()
-        else:
-            return {"ignored": True, "reason": "unrecognised event"}
-
-        anomalies = [a for a in anomalies if a][:MAX_PER_RUN]
-        return {"processed": [process(a) for a in anomalies]}
-  PYEOF
-}
-
-data "archive_file" "rag" {
-  type        = "zip"
-  output_path = "${path.module}/.build/rag-pipeline.zip"
-
-  source {
-    content  = local.rag_handler_py
-    filename = "rag_handler.py"
-  }
-}
-
-resource "aws_cloudwatch_log_group" "rag" {
-  name              = "/aws/lambda/${local.name_prefix}-rag-handler"
-  retention_in_days = var.log_retention_days
-}
-
-resource "aws_lambda_function" "rag" {
-  function_name    = "${local.name_prefix}-rag-handler"
-  role             = aws_iam_role.rag_lambda.arn
-  runtime          = "python3.12"
-  handler          = "rag_handler.handler"
-  filename         = data.archive_file.rag.output_path
-  source_code_hash = data.archive_file.rag.output_base64sha256
-  timeout          = 180
-  memory_size      = 512
-
-  environment {
-    variables = {
-      OPENSEARCH_ENDPOINT   = try(aws_opensearch_domain.vectors[0].endpoint, "")
-      OPENSEARCH_INDEX      = "incidents"
-      EMBED_MODEL_ID        = var.bedrock_embedding_model_id
-      EMBED_DIMENSIONS      = tostring(var.embedding_dimensions)
-      LLM_MODEL_ID          = var.bedrock_llm_model_id
-      SERVICENOW_SECRET_ID  = aws_secretsmanager_secret.servicenow.arn
-      DEDUPE_TABLE          = aws_dynamodb_table.dedupe.name
-      DEDUPE_TTL_SECONDS    = "3600"
-      VM_LOG_GROUP          = aws_cloudwatch_log_group.vms.name
-      EKS_CLUSTER_NAME      = var.enable_eks ? local.eks_name : ""
-      K8SGPT_NAMESPACE      = "k8sgpt"
-      MAX_ANOMALIES_PER_RUN = "10"
-    }
-  }
-
-  depends_on = [
-    aws_cloudwatch_log_group.rag,
-    aws_iam_role_policy.rag_lambda,
-    aws_iam_role_policy_attachment.rag_lambda_basic,
-  ]
-}
-
-# ---------------------------------------------------------------- EventBridge
-locals {
-  rag_rules_all = {
-      cw-alarms = {
-        enabled     = true
-        description = "CloudWatch alarms entering ALARM -> RAG pipeline"
-        pattern = jsonencode({
-          source        = ["aws.cloudwatch"]
-          "detail-type" = ["CloudWatch Alarm State Change"]
-          detail = {
-            alarmName = [{ prefix = "${local.name_prefix}-" }]
-            state     = { value = ["ALARM"] }
-          }
-        })
-        schedule = null
-      }
-      devopsguru = {
-        enabled     = var.enable_devops_guru
-        description = "DevOps Guru new insights -> RAG pipeline"
-        pattern = jsonencode({
-          source        = ["aws.devops-guru"]
-          "detail-type" = ["DevOps Guru New Insight Open"]
-        })
-        schedule = null
-      }
-      k8sgpt-poll = {
-        enabled     = var.enable_eks
-        description = "Poll k8sgpt results every 10 minutes -> RAG pipeline"
-        pattern     = null
-        schedule    = "rate(10 minutes)"
-      }
-  }
-  rag_rules = { for k, v in local.rag_rules_all : k => v if v.enabled }
-}
-
-resource "aws_cloudwatch_event_rule" "rag" {
-  for_each = local.rag_rules
-
-  name                = "${local.name_prefix}-${each.key}-to-rag"
-  description         = each.value.description
-  event_pattern       = each.value.pattern
-  schedule_expression = each.value.schedule
-}
-
-resource "aws_cloudwatch_event_target" "rag" {
-  for_each = local.rag_rules
-
-  rule      = aws_cloudwatch_event_rule.rag[each.key].name
-  target_id = "rag-lambda"
-  arn       = aws_lambda_function.rag.arn
-}
-
-resource "aws_lambda_permission" "rag" {
-  for_each = local.rag_rules
-
-  statement_id  = "AllowEventBridge-${each.key}"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.rag.function_name
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.rag[each.key].arn
-}
-
-################################################################################
-# EKS (PDF 6.3) - new cluster, or an existing one via existing_eks_cluster_name
-################################################################################
-
-data "aws_eks_cluster" "existing" {
-  count = var.enable_eks && !local.create_eks ? 1 : 0
-  name  = var.existing_eks_cluster_name
-}
-
-module "eks" {
-  count   = local.create_eks ? 1 : 0
-  source  = "terraform-aws-modules/eks/aws"
-  version = "~> 20.37"
-
-  cluster_name                             = "${local.name_prefix}-eks"
-  cluster_version                          = var.eks_version
-  cluster_endpoint_public_access           = true
-  enable_cluster_creator_admin_permissions = true
-  authentication_mode                      = "API_AND_CONFIG_MAP"
-
-  vpc_id     = aws_vpc.this.id
-  subnet_ids = aws_subnet.public[*].id
-
-  cluster_addons = {
-    coredns                = {}
-    kube-proxy             = {}
-    vpc-cni                = { before_compute = true }
-    eks-pod-identity-agent = { before_compute = true }
-  }
-
-  eks_managed_node_groups = {
-    default = {
-      ami_type       = "AL2023_x86_64_STANDARD" # AL2 AMIs are not published for k8s >= 1.33
-      instance_types = [var.eks_node_instance_type]
-      min_size       = 1
-      max_size       = 3
-      desired_size   = var.eks_node_desired
-
-      # Fallbacks in case a workload does not pick up its Pod Identity role.
-      iam_role_additional_policies = {
-        bedrock    = aws_iam_policy.bedrock_invoke.arn
-        cloudwatch = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
-      }
-    }
-  }
-}
-
-# ------------------------------------------------ Pod Identity roles (IRSA successor)
-locals {
-  pod_identities = { for k, v in {
-    fluent-bit = { namespace = "logging", service_account = "fluent-bit" }
-    k8sgpt     = { namespace = "k8sgpt", service_account = "k8sgpt" }
-    aiops-sa   = { namespace = "aiops", service_account = "aiops-sa" }
-  } : k => v if var.enable_eks }
-}
-
-resource "aws_iam_role" "pod" {
-  for_each = local.pod_identities
-
-  name               = "${local.name_prefix}-pod-${each.key}"
-  assume_role_policy = data.aws_iam_policy_document.pod_identity_assume.json
-}
-
-resource "aws_iam_role_policy_attachment" "pod_bedrock" {
-  for_each = { for k, v in local.pod_identities : k => v if k != "fluent-bit" }
-
-  role       = aws_iam_role.pod[each.key].name
-  policy_arn = aws_iam_policy.bedrock_invoke.arn
-}
-
-resource "aws_iam_role_policy" "pod_fluent_bit_logs" {
-  count = var.enable_eks ? 1 : 0
-
-  name = "cloudwatch-logs"
-  role = aws_iam_role.pod["fluent-bit"].id
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = ["logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams", "logs:DescribeLogGroups"]
-      Resource = ["${aws_cloudwatch_log_group.eks[0].arn}", "${aws_cloudwatch_log_group.eks[0].arn}:*"]
-    }]
-  })
-}
-
-resource "aws_eks_pod_identity_association" "pod" {
-  for_each = local.pod_identities
-
-  cluster_name    = local.eks_name
-  namespace       = each.value.namespace
-  service_account = each.value.service_account
-  role_arn        = aws_iam_role.pod[each.key].arn
-
-  depends_on = [module.eks]
-}
-
-# ------------------------------------------------ Lambda read access to k8sgpt results
-resource "aws_eks_access_entry" "rag_lambda" {
-  count = var.enable_eks ? 1 : 0
-
-  cluster_name      = local.eks_name
-  principal_arn     = aws_iam_role.rag_lambda.arn
-  kubernetes_groups = ["aiops-k8sgpt-readers"]
-  type              = "STANDARD"
-
-  depends_on = [module.eks]
-}
-
-# RBAC for the Lambda + aiops namespace/service account (PDF 6.3).
-# Uses the "raw" Helm chart so only the official helm provider is needed.
-resource "helm_release" "aiops_k8s_objects" {
-  count = var.enable_eks ? 1 : 0
-
-  name             = "aiops-k8s-objects"
-  repository       = "https://bedag.github.io/helm-charts/"
-  chart            = "raw"
-  namespace        = "aiops"
-  create_namespace = true
-
-  values = [yamlencode({
-    resources = [
-      {
-        apiVersion = "v1"
-        kind       = "ServiceAccount"
-        metadata   = { name = "aiops-sa", namespace = "aiops" }
-      },
-      {
-        apiVersion = "rbac.authorization.k8s.io/v1"
-        kind       = "ClusterRole"
-        metadata   = { name = "aiops-k8sgpt-results-reader" }
-        rules = [{
-          apiGroups = ["core.k8sgpt.ai"]
-          resources = ["results"]
-          verbs     = ["get", "list", "watch"]
-        }]
-      },
-      {
-        apiVersion = "rbac.authorization.k8s.io/v1"
-        kind       = "ClusterRoleBinding"
-        metadata   = { name = "aiops-k8sgpt-results-reader" }
-        roleRef = {
-          apiGroup = "rbac.authorization.k8s.io"
-          kind     = "ClusterRole"
-          name     = "aiops-k8sgpt-results-reader"
-        }
-        subjects = [{
-          apiGroup = "rbac.authorization.k8s.io"
-          kind     = "Group"
-          name     = "aiops-k8sgpt-readers"
-        }]
-      },
-    ]
-  })]
-
-  depends_on = [module.eks]
-}
-
-# ------------------------------------------------ Fluent Bit DaemonSet -> CloudWatch Logs
-resource "helm_release" "fluent_bit" {
-  count = var.enable_eks ? 1 : 0
-
-  name             = "fluent-bit"
-  repository       = "https://fluent.github.io/helm-charts"
-  chart            = "fluent-bit"
-  namespace        = "logging"
-  create_namespace = true
-  timeout          = 600
-
-  values = [yamlencode({
-    serviceAccount = { create = true, name = "fluent-bit" }
-    config = {
-      outputs = <<-EOT
-        [OUTPUT]
-            Name              cloudwatch_logs
-            Match             *
-            region            ${var.aws_region}
-            log_group_name    ${local.eks_log_grp}
-            log_stream_prefix eks-
-            auto_create_group Off
-      EOT
-    }
-  })]
-
-  depends_on = [module.eks, aws_eks_pod_identity_association.pod]
-}
-
-# ------------------------------------------------ Prometheus + kube-state-metrics
-resource "helm_release" "kube_prometheus" {
-  count = var.enable_eks ? 1 : 0
-
-  name             = "kube-prometheus"
-  repository       = "https://prometheus-community.github.io/helm-charts"
-  chart            = "kube-prometheus-stack"
-  namespace        = "monitoring"
-  create_namespace = true
-  timeout          = 900
-
-  values = [yamlencode({
-    grafana = { adminPassword = random_password.grafana_admin.result }
-  })]
-
-  depends_on = [module.eks]
-}
-
-# ------------------------------------------------ k8sgpt operator + Bedrock backend
-resource "helm_release" "k8sgpt_operator" {
-  count = var.enable_eks ? 1 : 0
-
-  name             = "k8sgpt-operator"
-  repository       = "https://charts.k8sgpt.ai/"
-  chart            = "k8sgpt-operator"
-  namespace        = "k8sgpt"
-  create_namespace = true
-  timeout          = 600
-
-  depends_on = [module.eks]
-}
-
-# K8sGPT custom resource (Bedrock backend, anonymization on). Installed after
-# the operator so its CRD already exists.
-resource "helm_release" "k8sgpt_bedrock" {
-  count = var.enable_eks ? 1 : 0
-
-  name       = "k8sgpt-bedrock-config"
-  repository = "https://bedag.github.io/helm-charts/"
-  chart      = "raw"
-  namespace  = "k8sgpt"
-
-  values = [yamlencode({
-    resources = [{
-      apiVersion = "core.k8sgpt.ai/v1alpha1"
-      kind       = "K8sGPT"
-      metadata   = { name = "k8sgpt-bedrock", namespace = "k8sgpt" }
-      spec = {
-        ai = {
-          enabled    = true
-          backend    = "amazonbedrock"
-          model      = var.k8sgpt_bedrock_model
-          region     = var.aws_region
-          anonymized = true
-        }
-        noCache    = false
-        repository = "ghcr.io/k8sgpt-ai/k8sgpt"
-        version    = var.k8sgpt_version
-      }
-    }]
-  })]
-
-  depends_on = [helm_release.k8sgpt_operator, aws_eks_pod_identity_association.pod]
+  records = [aws_instance.monitoring.private_ip]
 }
 
 ################################################################################
 # OUTPUTS
 ################################################################################
 
-output "aiops_public_ip" {
-  value = try(aws_instance.aiops[0].public_ip, null)
-}
-
-output "ssh_aiops" {
-  description = "Run after: terraform output -raw admin_private_key_pem > ~/.ssh/aiops-admin.pem && chmod 600 ~/.ssh/aiops-admin.pem"
-  value       = try("ssh -i ~/.ssh/aiops-admin.pem ubuntu@${aws_instance.aiops[0].public_ip}", null)
-}
-
-output "ssm_aiops" {
-  value = try("aws ssm start-session --target ${aws_instance.aiops[0].id} --region ${var.aws_region}", null)
-}
-
-output "admin_private_key_pem" {
-  description = "Admin SSH key for all VMs (works even when terraform ran on an ephemeral CI runner)"
-  value       = tls_private_key.admin_ssh.private_key_pem
-  sensitive   = true
+output "app_url" {
+  description = "Demo app through the load balancer (/ = app, /db = app + PostgreSQL)"
+  value       = "http://${aws_lb.app.dns_name}"
 }
 
 output "grafana_url" {
-  value = try("http://${aws_instance.aiops[0].public_ip}:3000", null)
+  value = "http://${aws_instance.monitoring.public_ip}:3000"
+}
+
+output "prometheus_url" {
+  value = "http://${aws_instance.monitoring.public_ip}:9090"
+}
+
+output "alertmanager_url" {
+  value = "http://${aws_instance.monitoring.public_ip}:9093"
+}
+
+output "aiops_api_url" {
+  description = "FastAPI: /health, /incidents, /docs"
+  value       = "http://${aws_instance.monitoring.public_ip}:8000/docs"
 }
 
 output "grafana_admin_password" {
-  value     = random_password.grafana_admin.result
+  value     = random_password.grafana.result
   sensitive = true
 }
 
-output "target_private_ips" {
-  value = aws_instance.target[*].private_ip
+output "admin_private_key_pem" {
+  description = "terraform output -raw admin_private_key_pem > ~/.ssh/aiops-admin.pem && chmod 600 ~/.ssh/aiops-admin.pem"
+  value       = tls_private_key.admin.private_key_pem
+  sensitive   = true
 }
 
-output "rag_lambda_name" {
-  value = aws_lambda_function.rag.function_name
+output "ssh_monitoring" {
+  value = "ssh -i ~/.ssh/aiops-admin.pem ubuntu@${aws_instance.monitoring.public_ip}"
 }
 
-output "servicenow_secret_name" {
-  value = aws_secretsmanager_secret.servicenow.name
+output "ssh_apps" {
+  value = [for vm in aws_instance.app : "ssh -i ~/.ssh/aiops-admin.pem ubuntu@${vm.public_ip}"]
 }
 
-output "opensearch_endpoint" {
-  value = try(aws_opensearch_domain.vectors[0].endpoint, null)
+output "ssh_db" {
+  value = "ssh -i ~/.ssh/aiops-admin.pem ubuntu@${aws_instance.db.public_ip}"
 }
 
-output "rds_endpoint" {
-  value = try(aws_db_instance.demo[0].endpoint, null)
+output "ssm_monitoring" {
+  value = "aws ssm start-session --target ${aws_instance.monitoring.id} --region ${var.aws_region}"
 }
 
-output "rds_monitoring_role_arn" {
-  description = "Use with aws rds modify-db-instance for EXISTING databases"
-  value       = aws_iam_role.rds_monitoring.arn
-}
-
-output "eks_cluster_name" {
-  value = var.enable_eks ? local.eks_name : null
-}
-
-output "eks_kubeconfig_command" {
-  value = var.enable_eks ? "aws eks update-kubeconfig --name ${local.eks_name} --region ${var.aws_region}" : null
-}
-
-output "vm_log_group" {
-  value = aws_cloudwatch_log_group.vms.name
+output "db_password" {
+  value     = random_password.db_app.result
+  sensitive = true
 }
