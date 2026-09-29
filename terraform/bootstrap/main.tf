@@ -1,24 +1,3 @@
-################################################################################
-# AIOps Solution Guide (LLM/RAG for VMs, EKS & Databases) - Terraform
-#
-# Implements the PDF end to end, keeping the existing open-source VM stack:
-#
-#   Collection  : CloudWatch Agent on VMs, Fluent Bit on EKS -> CloudWatch Logs
-#                 node_exporter / Prometheus (VM stack + kube-prometheus-stack)
-#                 RDS Enhanced Monitoring + Performance Insights
-#   Detection   : Amazon DevOps Guru (tag-scoped), CloudWatch alarms,
-#                 Prometheus alert rules, k8sgpt operator (Bedrock backend)
-#   RAG         : Lambda -> Bedrock Titan embeddings -> OpenSearch k-NN
-#                 -> Bedrock Claude RCA   (plus Ollama/Qdrant on the AIOps VM)
-#   Ticketing   : ServiceNow Table API, credentials in Secrets Manager
-#   Cost/safety : DynamoDB dedupe window, LLM only runs on confirmed anomalies
-#
-# Every expensive layer has an enable_* flag (see VARIABLES).
-#
-# Manual one-time steps Terraform cannot do (see README notes in the reply):
-#   * Bedrock: submit the Anthropic first-time-use form in the Bedrock console.
-#   * ServiceNow: put real credentials into the Secrets Manager secret.
-################################################################################
 terraform {
 
 
@@ -28,6 +7,7 @@ terraform {
     region         = "us-east-1"
   }
 }
+
 ################################################################################
 # VARIABLES
 ################################################################################
@@ -293,17 +273,6 @@ provider "helm" {
       command     = "aws"
       args        = ["eks", "get-token", "--cluster-name", local.eks_name, "--region", var.aws_region]
     }
-  }
-}
-
-provider "kubectl" {
-  host                   = local.eks_endpoint
-  cluster_ca_certificate = local.eks_ca
-  load_config_file       = false
-  exec {
-    api_version = "client.authentication.k8s.io/v1beta1"
-    command     = "aws"
-    args        = ["eks", "get-token", "--cluster-name", local.eks_name, "--region", var.aws_region]
   }
 }
 
@@ -2668,70 +2637,53 @@ resource "aws_eks_access_entry" "rag_lambda" {
   depends_on = [module.eks]
 }
 
-resource "kubectl_manifest" "k8sgpt_results_reader" {
+# RBAC for the Lambda + aiops namespace/service account (PDF 6.3).
+# Uses the "raw" Helm chart so only the official helm provider is needed.
+resource "helm_release" "aiops_k8s_objects" {
   count = var.enable_eks ? 1 : 0
 
-  yaml_body = <<-YAML
-    apiVersion: rbac.authorization.k8s.io/v1
-    kind: ClusterRole
-    metadata:
-      name: aiops-k8sgpt-results-reader
-    rules:
-      - apiGroups: ["core.k8sgpt.ai"]
-        resources: ["results"]
-        verbs: ["get", "list", "watch"]
-  YAML
+  name             = "aiops-k8s-objects"
+  repository       = "https://bedag.github.io/helm-charts/"
+  chart            = "raw"
+  namespace        = "aiops"
+  create_namespace = true
+
+  values = [yamlencode({
+    resources = [
+      {
+        apiVersion = "v1"
+        kind       = "ServiceAccount"
+        metadata   = { name = "aiops-sa", namespace = "aiops" }
+      },
+      {
+        apiVersion = "rbac.authorization.k8s.io/v1"
+        kind       = "ClusterRole"
+        metadata   = { name = "aiops-k8sgpt-results-reader" }
+        rules = [{
+          apiGroups = ["core.k8sgpt.ai"]
+          resources = ["results"]
+          verbs     = ["get", "list", "watch"]
+        }]
+      },
+      {
+        apiVersion = "rbac.authorization.k8s.io/v1"
+        kind       = "ClusterRoleBinding"
+        metadata   = { name = "aiops-k8sgpt-results-reader" }
+        roleRef = {
+          apiGroup = "rbac.authorization.k8s.io"
+          kind     = "ClusterRole"
+          name     = "aiops-k8sgpt-results-reader"
+        }
+        subjects = [{
+          apiGroup = "rbac.authorization.k8s.io"
+          kind     = "Group"
+          name     = "aiops-k8sgpt-readers"
+        }]
+      },
+    ]
+  })]
 
   depends_on = [module.eks]
-}
-
-resource "kubectl_manifest" "k8sgpt_results_reader_binding" {
-  count = var.enable_eks ? 1 : 0
-
-  yaml_body = <<-YAML
-    apiVersion: rbac.authorization.k8s.io/v1
-    kind: ClusterRoleBinding
-    metadata:
-      name: aiops-k8sgpt-results-reader
-    roleRef:
-      apiGroup: rbac.authorization.k8s.io
-      kind: ClusterRole
-      name: aiops-k8sgpt-results-reader
-    subjects:
-      - apiGroup: rbac.authorization.k8s.io
-        kind: Group
-        name: aiops-k8sgpt-readers
-  YAML
-
-  depends_on = [kubectl_manifest.k8sgpt_results_reader]
-}
-
-# ------------------------------------------------ aiops namespace + aiops-sa (PDF 6.3)
-resource "kubectl_manifest" "aiops_namespace" {
-  count = var.enable_eks ? 1 : 0
-
-  yaml_body = <<-YAML
-    apiVersion: v1
-    kind: Namespace
-    metadata:
-      name: aiops
-  YAML
-
-  depends_on = [module.eks]
-}
-
-resource "kubectl_manifest" "aiops_sa" {
-  count = var.enable_eks ? 1 : 0
-
-  yaml_body = <<-YAML
-    apiVersion: v1
-    kind: ServiceAccount
-    metadata:
-      name: aiops-sa
-      namespace: aiops
-  YAML
-
-  depends_on = [kubectl_manifest.aiops_namespace]
 }
 
 # ------------------------------------------------ Fluent Bit DaemonSet -> CloudWatch Logs
@@ -2795,26 +2747,35 @@ resource "helm_release" "k8sgpt_operator" {
   depends_on = [module.eks]
 }
 
-resource "kubectl_manifest" "k8sgpt_bedrock" {
+# K8sGPT custom resource (Bedrock backend, anonymization on). Installed after
+# the operator so its CRD already exists.
+resource "helm_release" "k8sgpt_bedrock" {
   count = var.enable_eks ? 1 : 0
 
-  yaml_body = <<-YAML
-    apiVersion: core.k8sgpt.ai/v1alpha1
-    kind: K8sGPT
-    metadata:
-      name: k8sgpt-bedrock
-      namespace: k8sgpt
-    spec:
-      ai:
-        enabled: true
-        backend: amazonbedrock
-        model: ${var.k8sgpt_bedrock_model}
-        region: ${var.aws_region}
-        anonymized: true
-      noCache: false
-      repository: ghcr.io/k8sgpt-ai/k8sgpt
-      version: ${var.k8sgpt_version}
-  YAML
+  name       = "k8sgpt-bedrock-config"
+  repository = "https://bedag.github.io/helm-charts/"
+  chart      = "raw"
+  namespace  = "k8sgpt"
+
+  values = [yamlencode({
+    resources = [{
+      apiVersion = "core.k8sgpt.ai/v1alpha1"
+      kind       = "K8sGPT"
+      metadata   = { name = "k8sgpt-bedrock", namespace = "k8sgpt" }
+      spec = {
+        ai = {
+          enabled    = true
+          backend    = "amazonbedrock"
+          model      = var.k8sgpt_bedrock_model
+          region     = var.aws_region
+          anonymized = true
+        }
+        noCache    = false
+        repository = "ghcr.io/k8sgpt-ai/k8sgpt"
+        version    = var.k8sgpt_version
+      }
+    }]
+  })]
 
   depends_on = [helm_release.k8sgpt_operator, aws_eks_pod_identity_association.pod]
 }
