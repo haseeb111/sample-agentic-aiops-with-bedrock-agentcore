@@ -69,7 +69,7 @@ variable "db_instance_type" {
 variable "monitoring_instance_type" {
   description = "Needs ~16 GiB RAM for the Docker stack + local Ollama model. Smaller types run out of memory and become unreachable."
   type        = string
-  default     = "t3.xlarge"
+  default     = "t3.micro"
 }
 
 variable "app_root_gb" {
