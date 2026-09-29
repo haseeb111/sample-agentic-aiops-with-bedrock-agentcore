@@ -19,48 +19,15 @@
 #   * Bedrock: submit the Anthropic first-time-use form in the Bedrock console.
 #   * ServiceNow: put real credentials into the Secrets Manager secret.
 ################################################################################
-
 terraform {
-  required_version = ">= 1.5.0"
+
 
   backend "s3" {
-    bucket = "aiops-terraform-tfstate01"
-    key    = "dev-aiops.tfstate"
-    region = "us-east-1"
-  }
-
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.95"
-    }
-    tls = {
-      source  = "hashicorp/tls"
-      version = "~> 4.0"
-    }
-    local = {
-      source  = "hashicorp/local"
-      version = "~> 2.5"
-    }
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.6"
-    }
-    archive = {
-      source  = "hashicorp/archive"
-      version = "~> 2.4"
-    }
-    helm = {
-      source  = "hashicorp/helm"
-      version = "~> 2.17"
-    }
-    kubectl = {
-      source  = "alekc/kubectl"
-      version = "~> 2.1"
-    }
+    bucket         = "aiops-terraform-tfstate01"
+    key            = "dev-aiops.tfstate"
+    region         = "us-east-1"
   }
 }
-
 ################################################################################
 # VARIABLES
 ################################################################################
